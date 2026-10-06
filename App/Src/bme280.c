@@ -3,22 +3,28 @@
 #define BME280_I2C_ADDR (0x76 << 1)
 #define Compensation_Start_ADDR (0x88)
 #define Compensation_Block_2_ADDR (0xE1)
+#define BME280_I2C_TIMEOUT_MS (100)
 
+#define BME280_CTRL_HUM_ADDR       (0xF2)
+#define BME280_CTRL_MEAS_ADDR      (0xF4)
+#define BME280_STATUS_ADDR         (0xF3)
+#define BME280_PRESS_TEMP_HUM_ADDR (0xF7)
+
+#define BME280_STATUS_MEASURING    (0x08)
+
+#define BME280_MEASUREMENT_TIMEOUT_MS (20)
 
 HAL_StatusTypeDef BME280_Read(I2C_HandleTypeDef* handler, uint8_t start_addr, uint8_t* buffer, uint16_t data_size){
-
-    return HAL_I2C_Mem_Read(handler, BME280_I2C_ADDR, start_addr, I2C_MEMADD_SIZE_8BIT, buffer, data_size, 100);
+    return HAL_I2C_Mem_Read(handler, BME280_I2C_ADDR, start_addr, I2C_MEMADD_SIZE_8BIT, buffer, data_size, BME280_I2C_TIMEOUT_MS);
 }
 
 HAL_StatusTypeDef BME280_ReadCalibration(I2C_HandleTypeDef* handler, uint8_t calib_1[Block_1_Length], uint8_t calib_2[Block_2_Length]){
-    
     HAL_StatusTypeDef status = BME280_Read(handler, Compensation_Start_ADDR, calib_1, Block_1_Length);
     if (status != HAL_OK){
         return status;
     }
 
-    status = BME280_Read(handler, Compensation_Block_2_ADDR, calib_2, Block_2_Length);
-    return status;
+    return BME280_Read(handler, Compensation_Block_2_ADDR, calib_2, Block_2_Length);
 }
 
 static uint16_t BME280_CombineBytes(uint8_t low_byte, uint8_t high_byte){
@@ -26,15 +32,14 @@ static uint16_t BME280_CombineBytes(uint8_t low_byte, uint8_t high_byte){
 }
 
 
-static int16_t BME280_SignExtend12(uint16_t value)
-{
+static int16_t BME280_SignExtend12(uint16_t value){
     if (value & 0x0800){
         value |= 0xF000;
     }
     return (int16_t)value;
 }
 
-void BME280_ParseCalibration(uint8_t calib_1[26], uint8_t calib_2[7], BME280_Calibration *calibration){
+void BME280_ParseCalibration(uint8_t calib_1[Block_1_Length], uint8_t calib_2[Block_2_Length], BME280_Calibration *calibration){
     /* Temperature calibration */
 
     calibration->dig_T1 = BME280_CombineBytes(calib_1[0], calib_1[1]);
@@ -84,5 +89,83 @@ void BME280_ParseCalibration(uint8_t calib_1[26], uint8_t calib_2[7], BME280_Cal
     calibration->dig_H6 = (int8_t)calib_2[6];
 }
 
+HAL_StatusTypeDef BME280_WriteReg(I2C_HandleTypeDef* handler, uint8_t reg_addr, uint8_t data){
+    return HAL_I2C_Mem_Write(handler,BME280_I2C_ADDR, reg_addr, I2C_MEMADD_SIZE_8BIT, &data, 1, BME280_I2C_TIMEOUT_MS);
+}
 
+HAL_StatusTypeDef BME280_Configure(I2C_HandleTypeDef* handler){
+    HAL_StatusTypeDef status;
 
+    /* Humidity oversampling = x1 */
+    status = BME280_WriteReg(handler, BME280_CTRL_HUM_ADDR, 0x01);
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    /* Temperature x1, pressure x1, sleep mode */
+    return BME280_WriteReg(handler, BME280_CTRL_MEAS_ADDR, 0x24);
+}
+
+HAL_StatusTypeDef BME280_TriggerMeasurement(I2C_HandleTypeDef* handler)
+{
+    /* Temperature x1, pressure x1, forced mode */
+    return BME280_WriteReg(handler, BME280_CTRL_MEAS_ADDR, 0x25);
+}
+
+HAL_StatusTypeDef BME280_WaitForMeasurement(I2C_HandleTypeDef* handler){
+    uint32_t start = HAL_GetTick();
+    uint8_t status_val;
+
+    /* Give the sensor time to enter measuring state. */
+    HAL_Delay(1);
+
+    while (1){
+        HAL_StatusTypeDef status = BME280_Read(handler, BME280_STATUS_ADDR, &status_val, 1);
+
+        if (status != HAL_OK){
+            return status;
+        }
+
+        if ((status_val & BME280_STATUS_MEASURING) == 0){
+            return HAL_OK;
+        }
+
+        if ((HAL_GetTick() - start) >= BME280_MEASUREMENT_TIMEOUT_MS){
+            return HAL_TIMEOUT;
+        }
+
+        HAL_Delay(1);
+    }
+}
+
+HAL_StatusTypeDef BME280_Measure(I2C_HandleTypeDef* handler, uint32_t* pressure, uint32_t* temperature, uint32_t* humidity){
+    uint8_t raw[8];
+    HAL_StatusTypeDef status;
+
+    /* Start a new forced-mode measurement */
+    status = BME280_TriggerMeasurement(handler);
+    if (status != HAL_OK) {
+    return status;
+    }
+
+    /* Wait until the measurement finishes */
+    status = BME280_WaitForMeasurement(handler);
+    if (status != HAL_OK){
+        return status;
+    }
+
+    /* Read pressure, temperature, and humidity in one burst */
+    status = BME280_Read(handler, BME280_PRESS_TEMP_HUM_ADDR, raw, 8);
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    /* Pressure: 20 bits */
+    *pressure = ((uint32_t)raw[0] << 12) | ((uint32_t)raw[1] << 4)  | ((uint32_t)raw[2] >> 4);
+    /* Temperature: 20 bits */
+    *temperature = ((uint32_t)raw[3] << 12) | ((uint32_t)raw[4] << 4)  | ((uint32_t)raw[5] >> 4);
+    /* Humidity: 16 bits */
+    *humidity = ((uint32_t)raw[6] << 8) | (uint32_t)raw[7];
+
+    return HAL_OK;
+}

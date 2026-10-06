@@ -33,5 +33,7 @@ typedef struct
 HAL_StatusTypeDef BME280_Read(I2C_HandleTypeDef* handler, uint8_t start_addr, uint8_t* buffer, uint16_t data_size);
 HAL_StatusTypeDef BME280_ReadCalibration(I2C_HandleTypeDef* handler, uint8_t calib_1[Block_1_Length], uint8_t calib_2[Block_2_Length]);
 void BME280_ParseCalibration(uint8_t calib_1[26], uint8_t calib_2[7], BME280_Calibration *calibration);
+HAL_StatusTypeDef BME280_Configure(I2C_HandleTypeDef* handler);
+HAL_StatusTypeDef BME280_Measure(I2C_HandleTypeDef* handler, uint32_t* pressure, uint32_t* temperature, uint32_t* humidity);
 
 #endif
