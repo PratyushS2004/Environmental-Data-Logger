@@ -169,3 +169,56 @@ HAL_StatusTypeDef BME280_Measure(I2C_HandleTypeDef* handler, uint32_t* pressure,
 
     return HAL_OK;
 }
+
+int32_t BME280_CompensateTemperature(const BME280_Calibration *calibration, int32_t adc_T, int32_t *t_fine){
+    int32_t var1;
+    int32_t var2;
+
+    /* Apply the BME280 calibration coefficients to the raw temperature ADC value. */
+    var1 = ((((adc_T >> 3) - ((int32_t)calibration->dig_T1 << 1)) * ((int32_t)calibration->dig_T2)) >> 11);
+
+    var2 = (((((adc_T >> 4) - ((int32_t)calibration->dig_T1)) * ((adc_T >> 4) - ((int32_t)calibration->dig_T1))) >> 12) *
+    ((int32_t)calibration->dig_T3)) >> 14;
+
+    /* t_fine is used by the pressure compensation calculation. */
+    *t_fine = var1 + var2;
+
+    /* Temperature is returned in degrees Celsius x100. */
+    return (*t_fine * 5 + 128) >> 8;
+}
+
+uint32_t BME280_CompensatePressure(const BME280_Calibration *calibration, int32_t adc_P, int32_t t_fine){
+    int64_t var1;
+    int64_t var2;
+    int64_t p;
+
+    /* Calculate the intermediate values using the temperature compensation. */
+    var1 = ((int64_t)t_fine) - 128000;
+
+    var2 = var1 * var1 * (int64_t)calibration->dig_P6;
+    var2 = var2 + ((var1 * (int64_t)calibration->dig_P5) << 17);
+    var2 = var2 + (((int64_t)calibration->dig_P4) << 35);
+
+    var1 = ((var1 * var1 * (int64_t)calibration->dig_P3) >> 8) + ((var1 * (int64_t)calibration->dig_P2) << 12);
+
+    var1 = (((((int64_t)1) << 47) + var1) * (int64_t)calibration->dig_P1) >> 33;
+
+    /* Prevent division by zero if the calibration data is invalid. */
+    if (var1 == 0)
+    {
+        return 0;
+    }
+
+    p = 1048576 - adc_P;
+
+    p = (((p << 31) - var2) * 3125) / var1;
+
+    var1 = ((int64_t)calibration->dig_P9 * (p >> 13) * (p >> 13)) >> 25;
+
+    var2 = ((int64_t)calibration->dig_P8 * p) >> 19;
+
+    /* Apply the final pressure compensation and return pressure in Pa. */
+    p = ((p + var1 + var2) >> 8) + (((int64_t)calibration->dig_P7) << 4);
+
+    return (uint32_t)p;
+}

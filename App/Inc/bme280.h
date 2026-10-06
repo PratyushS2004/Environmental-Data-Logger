@@ -35,5 +35,6 @@ HAL_StatusTypeDef BME280_ReadCalibration(I2C_HandleTypeDef* handler, uint8_t cal
 void BME280_ParseCalibration(uint8_t calib_1[26], uint8_t calib_2[7], BME280_Calibration *calibration);
 HAL_StatusTypeDef BME280_Configure(I2C_HandleTypeDef* handler);
 HAL_StatusTypeDef BME280_Measure(I2C_HandleTypeDef* handler, uint32_t* pressure, uint32_t* temperature, uint32_t* humidity);
-
+int32_t BME280_CompensateTemperature(const BME280_Calibration *calibration, int32_t adc_T, int32_t *t_fine);
+uint32_t BME280_CompensatePressure(const BME280_Calibration *calibration, int32_t adc_P, int32_t t_fine);
 #endif
