@@ -18,5 +18,5 @@ HAL_StatusTypeDef Flash_WaitBusy(uint32_t timeout_ms, SPI_HandleTypeDef *handler
 HAL_StatusTypeDef Flash_WriteEnable(SPI_HandleTypeDef *handler);
 HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler);
 HAL_StatusTypeDef Flash_Read(uint32_t address, uint8_t *data, uint16_t length,  SPI_HandleTypeDef *handler);
-
+HAL_StatusTypeDef Flash_PageProgram(uint32_t address, const uint8_t *data, uint32_t length, SPI_HandleTypeDef *handler);
 #endif
