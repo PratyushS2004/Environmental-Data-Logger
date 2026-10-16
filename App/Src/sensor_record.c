@@ -74,3 +74,32 @@ SensorRecordStatus SensorRecord_Build(SensorRecord *out, uint32_t seq, int32_t t
     return SENSOR_RECORD_OK;
 }
 
+SensorRecordClassification SensorRecord_Classify(const uint8_t data[SENSOR_RECORD_SIZE_BYTES]) {
+    if (data == NULL) {
+        return SENSOR_RECORD_CORRUPT;
+    }
+
+    /* An entirely erased flash slot is blank. */
+    uint8_t all_ff = 1U;
+
+    for (uint32_t i = 0U; i < SENSOR_RECORD_SIZE_BYTES; i++) {
+        if (data[i] != 0xFFU) {
+            all_ff = 0U;
+            break;
+        }
+    }
+
+    if (all_ff != 0U) {
+        return SENSOR_RECORD_BLANK;
+    }
+
+    /* Copy raw bytes into an aligned local record object. */
+    SensorRecord record;
+    memcpy(&record, data, sizeof(record));
+
+    if (SensorRecord_CalculateCRC(&record) == record.crc) {
+        return SENSOR_RECORD_VALID;
+    }
+
+    return SENSOR_RECORD_CORRUPT;
+}

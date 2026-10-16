@@ -33,7 +33,14 @@ typedef enum {
     SENSOR_RECORD_ERROR_HUMIDITY
 } SensorRecordStatus;
 
+typedef enum {
+    SENSOR_RECORD_BLANK,
+    SENSOR_RECORD_VALID,
+    SENSOR_RECORD_CORRUPT
+} SensorRecordClassification;
+
 SensorRecordStatus SensorRecord_Build(SensorRecord *out, uint32_t seq, int32_t temperature_centi_c,
     uint32_t pressure_q24_8,uint32_t humidity_q22_10);
-
-    #endif
+uint32_t SensorRecord_CalculateCRC(const SensorRecord *record);
+SensorRecordClassification SensorRecord_Classify(const uint8_t data[SENSOR_RECORD_SIZE_BYTES]);    
+#endif
