@@ -108,6 +108,13 @@ HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler
 }
 
 HAL_StatusTypeDef Flash_Read(uint32_t address, uint8_t *data, uint16_t length,  SPI_HandleTypeDef *handler){
+
+    /* Validate the request before communicating with the flash. */
+    if (data == NULL || handler == NULL || length == 0U || address > 0x007FFFFFUL ||
+        (uint32_t)length > (0x00800000UL - address)){
+        return HAL_ERROR;
+    }
+    
     uint8_t cmd[4];
 
     cmd[0] = FLASH_CMD_READ_DATA;
