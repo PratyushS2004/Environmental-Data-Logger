@@ -28,8 +28,8 @@ ScanStatus RecoveryScan(const ScanConfig *config, ScanResult *result) {
         result->next_seq = 0U;
     }
 
-    if (config == NULL || result == NULL || config->read == NULL || config->slot_count == 0U ||
-        config->base_address >= W25Q64_CAPACITY_BYTES || config->slot_count >
+    if (config == NULL || result == NULL || config->read == NULL || config->classify == NULL || 
+        config->slot_count == 0U || config->base_address >= W25Q64_CAPACITY_BYTES || config->slot_count >
             (W25Q64_CAPACITY_BYTES - config->base_address) / SENSOR_RECORD_SIZE_BYTES) {
         return SCAN_BAD_ARGUMENT;
     }
