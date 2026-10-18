@@ -1,7 +1,8 @@
 #ifndef SENSOR_RECORD_H
 #define SENSOR_RECORD_H
 
-#include "main.h"
+#include <stdint.h>
+#include <stddef.h>
 
 #define SENSOR_RECORD_SIZE_BYTES 16U
 #define SENSOR_RECORD_CRC_OFFSET 12U

@@ -1,3 +1,4 @@
+#include "main.h"
 #include "sensor_record.h"
 
 extern CRC_HandleTypeDef hcrc;
