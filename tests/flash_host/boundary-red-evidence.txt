@@ -1,0 +1,20 @@
+=== Commit ===
+ca8194e
+
+=== GCC version ===
+gcc.exe (Rev3, Built by MSYS2 project) 16.1.0
+
+=== Build output ===
+ninja: no work to do.
+Build exit code: 0
+
+=== Tests against unchanged driver ===
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+FAIL FlashReadBoundary: expected HAL_ERROR, got 0
+FAIL FlashReadBoundary: output buffer changed
+FAIL FlashReadBoundary: SPI activity occurred (TX=1, RX=1)
+FAIL FlashReadBoundary: expected 0 CS writes, got 2
+FAIL FlashReadBoundary: 4 check(s) failed
+Test exit code: 1
