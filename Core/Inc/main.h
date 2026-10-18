@@ -33,6 +33,16 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bme280.h"
+#include "w25q64.h"
+#include "sensor_record.h"
+#include "recovery_scan.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <stddef.h>
+#include <limits.h>
 
 /* USER CODE END Includes */
 
