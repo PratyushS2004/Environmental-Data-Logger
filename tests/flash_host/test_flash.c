@@ -456,6 +456,8 @@ static uint32_t Test_erase_rejects_capacity_0x800000(void)
 
     Mock_Reset();
 
+    Mock_SetStatus(0x02U);
+
     result = Flash_SectorErase(0x800000U, &spi);
 
     if (result != HAL_ERROR) {
@@ -537,6 +539,8 @@ static uint32_t Test_erase_rejects_null_handler(void)
     HAL_StatusTypeDef result;
 
     Mock_Reset();
+
+    Mock_SetStatus(0x02U);
 
     result = Flash_SectorErase(0x1000U, NULL);
 
