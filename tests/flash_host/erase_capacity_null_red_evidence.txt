@@ -1,0 +1,92 @@
+
+Prediction:
+- The three erase tests will each report 8 failed checks and 1 passing
+  buffer-guard check.
+- Expected: 24 individual FAIL lines and 3 summary FAIL lines,
+  for 27 FAIL lines total.
+- The six existing non-erase tests should pass.
+- Expected: 6 PASS lines, 33 PASS/FAIL output lines total.
+- Expected build exit code: 0.
+- Expected test exit code: 1.
+- Both new tests seed the mock status with Mock_SetStatus(0x02U)
+  immediately after Mock_Reset(), allowing the driver to proceed
+  beyond Write Enable status verification.
+
+Previous run note:
+- Commit 440608c produced 7 failed checks per new test because the
+  mock status was left at 0x00. Flash_WriteEnable returned HAL_ERROR
+  after the Write Enable and Read Status transactions, before the
+  erase command and final BUSY poll.
+
+Observed results
+================
+
+Test source revision:
+70c367b31927c046e1aca8986b4b4bb024466366
+
+Compiler:
+C:\msys64\ucrt64\bin\gcc.exe
+gcc.exe (Rev3, Built by MSYS2 project) 16.1.0
+
+Build:
+Command: cmake --build tests/flash_host/build
+Observed build output:
+[2/2] Linking C executable flash_host_tests.exe
+Build exit code: 0
+
+Test:
+Command: .\tests\flash_host\build\flash_host_tests.exe
+Test exit code: 1
+
+Observed result summary:
+- Six existing non-erase tests passed.
+- Each of the three erase tests reported 8 failed checks.
+- Each erase test's buffer-guard check passed.
+- 24 individual FAIL lines and 3 summary FAIL lines.
+- 27 FAIL lines total.
+- 6 PASS lines.
+- 33 PASS/FAIL output lines total.
+
+The three failing tests were:
+- erase_rejects_unaligned_0x1001
+- erase_rejects_capacity_0x800000
+- erase_rejects_null_handler
+
+For all three tests, Flash_SectorErase returned HAL_OK (numeric value 0) when HAL_ERROR was expected. Each test observed 4 transmit calls, 7 transmitted bytes, 2 receive calls, 2 received bytes, 8 CS writes, 4 commands, and final command 0x05. These results show that invalid erase requests are not rejected before SPI activity.
+
+Complete observed test output:
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+PASS FlashReadBoundary
+PASS FlashReadRejectsAddress0x800000
+PASS FlashReadRejectsAddress0x800001
+FAIL erase_rejects_unaligned_0x1001: expected HAL_ERROR, got 0
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX calls, got 4
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX bytes, got 7
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX calls, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX bytes, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 CS writes, got 8
+FAIL erase_rejects_unaligned_0x1001: expected 0 commands, got 4
+FAIL erase_rejects_unaligned_0x1001: expected last command 0x00, got 0x05
+FAIL erase_rejects_unaligned_0x1001: 8 check(s) failed
+FAIL erase_rejects_capacity_0x800000: expected HAL_ERROR, got 0
+FAIL erase_rejects_capacity_0x800000: expected 0 TX calls, got 4
+FAIL erase_rejects_capacity_0x800000: expected 0 TX bytes, got 7
+FAIL erase_rejects_capacity_0x800000: expected 0 RX calls, got 2
+FAIL erase_rejects_capacity_0x800000: expected 0 RX bytes, got 2
+FAIL erase_rejects_capacity_0x800000: expected 0 CS writes, got 8
+FAIL erase_rejects_capacity_0x800000: expected 0 commands, got 4
+FAIL erase_rejects_capacity_0x800000: expected last command 0x00, got 0x05
+FAIL erase_rejects_capacity_0x800000: 8 check(s) failed
+FAIL erase_rejects_null_handler: expected HAL_ERROR, got 0
+FAIL erase_rejects_null_handler: expected 0 TX calls, got 4
+FAIL erase_rejects_null_handler: expected 0 TX bytes, got 7
+FAIL erase_rejects_null_handler: expected 0 RX calls, got 2
+FAIL erase_rejects_null_handler: expected 0 RX bytes, got 2
+FAIL erase_rejects_null_handler: expected 0 CS writes, got 8
+FAIL erase_rejects_null_handler: expected 0 commands, got 4
+FAIL erase_rejects_null_handler: expected last command 0x00, got 0x05
+FAIL erase_rejects_null_handler: 8 check(s) failed
+
+Test exit code: 1
