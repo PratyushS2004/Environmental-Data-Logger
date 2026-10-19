@@ -23,3 +23,17 @@ target_compile_options(flash_host_tests PRIVATE
     -Wextra
     -Werror
 )
+
+add_library(recovery_scan_compile_check OBJECT
+    ../../App/Src/recovery_scan.c
+)
+
+target_include_directories(recovery_scan_compile_check PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../App/Inc"
+)
+
+target_compile_options(recovery_scan_compile_check PRIVATE
+    -Wall
+    -Wextra
+    -Werror
+)
