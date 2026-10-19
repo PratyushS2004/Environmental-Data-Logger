@@ -362,6 +362,91 @@ static uint32_t Test_FlashReadRejectsAddress0x800001(void)
     return failures;
 }
 
+
+static uint32_t Test_erase_rejects_unaligned_0x1001(void)
+{
+    SPI_HandleTypeDef spi = {0};
+    uint32_t failures = 0U;
+    HAL_StatusTypeDef result;
+
+    Mock_Reset();
+    Mock_SetStatus(0x02U);
+
+    result = Flash_SectorErase(0x1001U, &spi);
+
+    if (result != HAL_ERROR) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected HAL_ERROR, got %u\n",
+               (unsigned int)result);
+        failures++;
+    }
+
+    if (mock_tx_calls != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 TX calls, got %u\n",
+               (unsigned int)mock_tx_calls);
+        failures++;
+    }
+
+    if (mock_tx_bytes != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 TX bytes, got %u\n",
+               (unsigned int)mock_tx_bytes);
+        failures++;
+    }
+
+    if (mock_rx_calls != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 RX calls, got %u\n",
+               (unsigned int)mock_rx_calls);
+        failures++;
+    }
+
+    if (mock_rx_bytes != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 RX bytes, got %u\n",
+               (unsigned int)mock_rx_bytes);
+        failures++;
+    }
+
+    if (mock_cs_writes != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 CS writes, got %u\n",
+               (unsigned int)mock_cs_writes);
+        failures++;
+    }
+
+    if (mock_command_count != 0U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected 0 commands, got %u\n",
+               (unsigned int)mock_command_count);
+        failures++;
+    }
+
+    if (mock_command != 0x00U) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "expected last command 0x00, got 0x%02X\n",
+               (unsigned int)mock_command);
+        failures++;
+    }
+
+    if (!MockFlash_CheckGuards()) {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "flash guard corrupted\n");
+        failures++;
+    }
+
+    if (failures == 0U) {
+        printf("PASS erase_rejects_unaligned_0x1001\n");
+    } else {
+        printf("FAIL erase_rejects_unaligned_0x1001: "
+               "%u check(s) failed\n",
+               (unsigned int)failures);
+    }
+
+    return failures;
+}
+
 int main(void)
 {
     SPI_HandleTypeDef spi = {0};
@@ -429,6 +514,8 @@ int main(void)
     failures += Test_FlashReadRejectsAddress0x800000();
 
     failures += Test_FlashReadRejectsAddress0x800001();
-    
+
+    failures += Test_erase_rejects_unaligned_0x1001();
+
     return (failures == 0U) ? 0 : 1;
 }
