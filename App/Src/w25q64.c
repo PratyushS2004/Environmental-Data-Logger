@@ -1,4 +1,5 @@
 #include "w25q64.h"
+#include "flash_config.h"
 
 #define FLASH_PROGRAM_TIMEOUT_MS  (10)
 #define FLASH_ERASE_TIMEOUT_MS    (500)
@@ -83,7 +84,7 @@ HAL_StatusTypeDef Flash_WriteEnable(SPI_HandleTypeDef *handler){
 
 HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler){
 
-    if (handler == NULL || address > 0x007FFFFFU || (address % 0x1000U) != 0U) {
+    if (handler == NULL || address > (W25Q64_CAPACITY_BYTES - 1U) || (address % 0x1000U) != 0U) {
         return HAL_ERROR;
     }
 
@@ -115,8 +116,8 @@ HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler
 HAL_StatusTypeDef Flash_Read(uint32_t address, uint8_t *data, uint16_t length,  SPI_HandleTypeDef *handler){
 
     /* Validate the request before communicating with the flash. */
-    if (data == NULL || handler == NULL || length == 0U || address > 0x007FFFFFUL ||
-        (uint32_t)length > (0x00800000UL - address)){
+    if (data == NULL || handler == NULL || length == 0U || address > (W25Q64_CAPACITY_BYTES - 1U) ||
+        (uint32_t)length > (W25Q64_CAPACITY_BYTES - address)){
         return HAL_ERROR;
     }
     
@@ -147,8 +148,8 @@ HAL_StatusTypeDef Flash_PageProgram(uint32_t address, const uint8_t *data, uint3
     uint8_t cmd[4];
 
     /* Validate the request before communicating with the flash. */
-    if (data == NULL || handler == NULL || length == 0 || length > 256 || address > 0x007FFFFF ||
-        (address % 256) + length > 256 || length > (0x00800000 - address)){
+    if (data == NULL || handler == NULL || length == 0 || length > 256 || address > (W25Q64_CAPACITY_BYTES - 1U) ||
+        (address % 256) + length > 256 || length > (W25Q64_CAPACITY_BYTES - address)){
         return HAL_ERROR;
     }
 
