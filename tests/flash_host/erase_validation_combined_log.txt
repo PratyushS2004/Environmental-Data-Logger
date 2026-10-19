@@ -1,0 +1,96 @@
+Environment Data Logger - W25Q64FV Host Erase Validation
+Date: 2026-10-19
+
+Driver commit: f4efe96 fix: reject invalid flash sector erase requests
+Tests commit: 70c367b test: seed flash status for invalid erase cases
+GCC: gcc.exe (Rev3, Built by MSYS2 project) 16.1.0
+
+Capture note: The build capture keeps only the last build line, so the [1/2] line is not shown.
+
+RUN 1 - Initial green baseline
+Build command: cmake --build tests/flash_host/build
+Test command: .\tests\flash_host\build\flash_host_tests.exe
+Build exit code: 0
+
+[2/2] Linking C executable flash_host_tests.exe
+Build exit code: 0
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+PASS FlashReadBoundary
+PASS FlashReadRejectsAddress0x800000
+PASS FlashReadRejectsAddress0x800001
+PASS erase_rejects_unaligned_0x1001
+PASS erase_rejects_capacity_0x800000
+PASS erase_rejects_null_handler
+Test exit code: 0
+
+Observed: 9 PASS, 0 FAIL. Build and test exit codes were both 0.
+
+RUN 2 - Mutation 4
+Mutation: Moved the unchanged Flash_SectorErase validation condition to immediately after Flash_WriteEnable() and its status check. The mutation was temporary and was not committed.
+
+Build command: cmake --build tests/flash_host/build
+Test command: .\tests\flash_host\build\flash_host_tests.exe
+Build exit code: 0
+
+[2/2] Linking C executable flash_host_tests.exe
+Build exit code: 0
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+PASS FlashReadBoundary
+PASS FlashReadRejectsAddress0x800000
+PASS FlashReadRejectsAddress0x800001
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX calls, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX bytes, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX calls, got 1
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX bytes, got 1
+FAIL erase_rejects_unaligned_0x1001: expected 0 CS writes, got 4
+FAIL erase_rejects_unaligned_0x1001: expected 0 commands, got 2
+FAIL erase_rejects_unaligned_0x1001: expected last command 0x00, got 0x05
+FAIL erase_rejects_unaligned_0x1001: 7 check(s) failed
+FAIL erase_rejects_capacity_0x800000: expected 0 TX calls, got 2
+FAIL erase_rejects_capacity_0x800000: expected 0 TX bytes, got 2
+FAIL erase_rejects_capacity_0x800000: expected 0 RX calls, got 1
+FAIL erase_rejects_capacity_0x800000: expected 0 RX bytes, got 1
+FAIL erase_rejects_capacity_0x800000: expected 0 CS writes, got 4
+FAIL erase_rejects_capacity_0x800000: expected 0 commands, got 2
+FAIL erase_rejects_capacity_0x800000: expected last command 0x00, got 0x05
+FAIL erase_rejects_capacity_0x800000: 7 check(s) failed
+FAIL erase_rejects_null_handler: expected 0 TX calls, got 2
+FAIL erase_rejects_null_handler: expected 0 TX bytes, got 2
+FAIL erase_rejects_null_handler: expected 0 RX calls, got 1
+FAIL erase_rejects_null_handler: expected 0 RX bytes, got 1
+FAIL erase_rejects_null_handler: expected 0 CS writes, got 4
+FAIL erase_rejects_null_handler: expected 0 commands, got 2
+FAIL erase_rejects_null_handler: expected last command 0x00, got 0x05
+FAIL erase_rejects_null_handler: 7 check(s) failed
+Test exit code: 1
+
+Observed: 24 FAIL lines (21 failed checks plus 3 per-test summaries). Build exit code 0; test exit code 1. Each of the three invalid-erase tests reported seven failed checks because SPI traffic occurred before validation rejected the request.
+
+RUN 3 - Restored green baseline
+Restoration: Ran git checkout -- App/Src/w25q64.c to discard the temporary mutation. The driver diff was empty afterward.
+
+Build command: cmake --build tests/flash_host/build
+Test command: .\tests\flash_host\build\flash_host_tests.exe
+Build exit code: 0
+
+[2/2] Linking C executable flash_host_tests.exe
+Build exit code: 0
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+PASS FlashReadBoundary
+PASS FlashReadRejectsAddress0x800000
+PASS FlashReadRejectsAddress0x800001
+PASS erase_rejects_unaligned_0x1001
+PASS erase_rejects_capacity_0x800000
+PASS erase_rejects_null_handler
+Test exit code: 0
+
+Observed: 9 PASS, 0 FAIL. Build and test exit codes were both 0.
+
+Conclusion:
+The host tests verify that invalid sector-erase requests are rejected without bus activity. Mutation 4 demonstrated that the bus-traffic assertions detect validation placed after Write Enable, even when the function ultimately rejects the request. The host mock does not exercise a valid erase transaction or prove physical erase behavior on the W25Q64.
