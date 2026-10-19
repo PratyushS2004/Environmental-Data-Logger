@@ -239,6 +239,65 @@ static uint32_t Test_FlashReadBoundary(void)
     return failures;
 }
 
+
+static uint32_t Test_FlashReadRejectsAddress0x800000(void)
+{
+    SPI_HandleTypeDef spi = {0};
+
+    uint8_t received = 0xC7U;
+    uint32_t failures = 0U;
+    HAL_StatusTypeDef result;
+
+    Mock_Reset();
+
+    result = Flash_Read(0x800000U, &received, 1U, &spi);
+
+    if (result != HAL_ERROR) {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "expected HAL_ERROR, got %u\n",
+               (unsigned int)result);
+        failures++;
+    }
+
+    if (received != 0xC7U) {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "output buffer changed to 0x%02X\n",
+               (unsigned int)received);
+        failures++;
+    }
+
+    if (mock_tx_calls != 0U || mock_rx_calls != 0U) {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "SPI activity occurred (TX=%u, RX=%u)\n",
+               (unsigned int)mock_tx_calls,
+               (unsigned int)mock_rx_calls);
+        failures++;
+    }
+
+    if (mock_cs_writes != 0U) {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "expected 0 CS writes, got %u\n",
+               (unsigned int)mock_cs_writes);
+        failures++;
+    }
+
+    if (!MockFlash_CheckGuards()) {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "flash guard corrupted\n");
+        failures++;
+    }
+
+    if (failures == 0U) {
+        printf("PASS FlashReadRejectsAddress0x800000\n");
+    } else {
+        printf("FAIL FlashReadRejectsAddress0x800000: "
+               "%u check(s) failed\n",
+               (unsigned int)failures);
+    }
+
+    return failures;
+}
+
 int main(void)
 {
     SPI_HandleTypeDef spi = {0};
@@ -302,6 +361,8 @@ int main(void)
     failures += Test_MockFlashReadWrap();
 
     failures += Test_FlashReadBoundary();
+
+    failures += Test_FlashReadRejectsAddress0x800000();
 
     return (failures == 0U) ? 0 : 1;
 }
