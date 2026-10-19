@@ -1,0 +1,54 @@
+﻿Prediction: six existing tests pass; erase_rejects_unaligned_0x1001
+reports eight failed checks and one passing guard check.
+Expected new-test total: 9 checks.
+Expected process exit code: 1.
+
+--- Actual test output ---
+PASS Flash_ReadStatus
+PASS MockFlashRead
+PASS MockFlashReadWrap
+PASS FlashReadBoundary
+PASS FlashReadRejectsAddress0x800000
+PASS FlashReadRejectsAddress0x800001
+FAIL erase_rejects_unaligned_0x1001: expected HAL_ERROR, got 0
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX calls, got 4
+FAIL erase_rejects_unaligned_0x1001: expected 0 TX bytes, got 7
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX calls, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 RX bytes, got 2
+FAIL erase_rejects_unaligned_0x1001: expected 0 CS writes, got 8
+FAIL erase_rejects_unaligned_0x1001: expected 0 commands, got 4
+FAIL erase_rejects_unaligned_0x1001: expected last command 0x00, got 0x05
+FAIL erase_rejects_unaligned_0x1001: 8 check(s) failed
+Test exit code: 1
+
+--- Environment and source revision ---
+Date: 2026-10-18
+Project: EnvironmentLogger
+Target: STM32 Nucleo-F446RE
+External flash: W25Q64FV, 8 MiB
+Host OS: Windows
+Shell: PowerShell
+Build system: CMake + Ninja
+Compiler: gcc.exe (Rev3, Built by MSYS2 project) 16.1.0
+Git revision: 110f59d1038ef2614ba7eedbd3374991d88e2c9a
+Commit subject: test: reject unaligned flash sector erase
+
+Build command:
+cmake --build tests/flash_host/build
+
+Build exit code: 0
+
+Test command:
+.\tests\flash_host\build\flash_host_tests.exe
+
+Test exit code: 1
+
+Interpretation:
+The build command returned exit code 0. The captured build output
+reported "ninja: no work to do", so the build was up to date and
+the output does not establish that compilation occurred during this
+run. Six existing tests passed. The new unaligned-sector-erase
+regression test failed eight checks and passed the guard-integrity
+check. The driver still performs SPI transactions for address 0x1001
+instead of rejecting it before communication. This is the expected
+red-test baseline, before the driver fix.
