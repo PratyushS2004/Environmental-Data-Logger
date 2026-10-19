@@ -82,6 +82,11 @@ HAL_StatusTypeDef Flash_WriteEnable(SPI_HandleTypeDef *handler){
 }
 
 HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler){
+
+    if (handler == NULL || address > 0x007FFFFFU || (address % 0x1000U) != 0U) {
+        return HAL_ERROR;
+    }
+
     HAL_StatusTypeDef status;
 
     status = Flash_WriteEnable(handler);
