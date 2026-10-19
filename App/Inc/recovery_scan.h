@@ -4,9 +4,9 @@
 
 #include <stdint.h>
 #include "sensor_record.h"
+#include "flash_config.h"
 
 #define RECOVERY_SCAN_NO_SLOT UINT32_MAX
-#define W25Q64_CAPACITY_BYTES 0x00800000U
 
 typedef enum {
     SCAN_OK = 0,
