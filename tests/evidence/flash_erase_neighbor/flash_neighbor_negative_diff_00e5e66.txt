@@ -1,0 +1,11 @@
+Commit: 00e5e66
+Test: Negative-control source diff
+Evidence type: Post-run transcription, reconstructed from the recorded change
+File: Core/Src/main.c
+Only intended change: Step 8 erase target
+
+- Flash_SectorErase(FLASH_TEST_SECTOR_A_ADDRESS, &hspi1)
++ Flash_SectorErase(FLASH_TEST_SECTOR_B_ADDRESS, &hspi1)
+
+The deliberate change was reverted after the negative-control run.
+The restored main.c was rebuilt and the clean hardware test passed.

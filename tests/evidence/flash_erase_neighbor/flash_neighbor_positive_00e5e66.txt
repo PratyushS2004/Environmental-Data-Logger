@@ -1,0 +1,22 @@
+Commit: 00e5e66
+Test: Original positive hardware run
+Result: PASS
+
+=== Flash Erase Neighbor Test ===
+PASS: JEDEC ID EF 40 17
+[2] Erase sector A
+PASS: A setup blank check verification, mismatches=0
+[3] Erase sector B
+PASS: B setup blank check verification, mismatches=0
+[4] Program sector A pattern
+[5] Program sector B pattern
+[6] Verify sector A pattern
+PASS: A pre-erase pattern verification, mismatches=0
+[7] Verify sector B pattern
+PASS: B pre-erase pattern verification, mismatches=0
+[8] Erase sector A and blank-check A
+PASS: A post-erase blank check verification, mismatches=0
+[9] Verify sector B survived
+PASS: B post-erase pattern verification, mismatches=0
+[10] Final verdict
+PASS: Sector A erased; upper neighbor B intact

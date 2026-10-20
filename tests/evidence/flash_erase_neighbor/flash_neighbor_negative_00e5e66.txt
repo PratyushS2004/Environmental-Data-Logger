@@ -1,0 +1,25 @@
+Commit: 00e5e66
+Test: Negative-control hardware run
+Evidence: UART output supplied after the physical run
+Modification: Step 8 erased sector B instead of sector A
+
+=== Flash Erase Neighbor Test ===
+PASS: JEDEC ID EF 40 17
+[2] Erase sector A
+PASS: A setup blank check verification, mismatches=0
+[3] Erase sector B
+PASS: B setup blank check verification, mismatches=0
+[4] Program sector A pattern
+[5] Program sector B pattern
+[6] Verify sector A pattern
+PASS: A pre-erase pattern verification, mismatches=0
+[7] Verify sector B pattern
+PASS: B pre-erase pattern verification, mismatches=0
+[8] Erase sector A and blank-check A
+FAIL: A post-erase blank check offset=0x000 expected=0xFF actual=0x00
+FAIL: A post-erase blank check total mismatches=4096 of 4096 bytes
+[9] Verify sector B survived
+FAIL: B post-erase pattern offset=0x000 expected=0x70 actual=0xFF
+FAIL: B post-erase pattern total mismatches=4096 of 4096 bytes
+[10] Final verdict
+FAIL: Neighbor-sector erase test
