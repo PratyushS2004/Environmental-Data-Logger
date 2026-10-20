@@ -19,4 +19,5 @@ HAL_StatusTypeDef Flash_WriteEnable(SPI_HandleTypeDef *handler);
 HAL_StatusTypeDef Flash_SectorErase(uint32_t address, SPI_HandleTypeDef *handler);
 HAL_StatusTypeDef Flash_Read(uint32_t address, uint8_t *data, uint16_t length,  SPI_HandleTypeDef *handler);
 HAL_StatusTypeDef Flash_PageProgram(uint32_t address, const uint8_t *data, uint32_t length, SPI_HandleTypeDef *handler);
+HAL_StatusTypeDef Flash_ReadJEDECID(uint8_t jedec_id[3], SPI_HandleTypeDef *handler);
 #endif

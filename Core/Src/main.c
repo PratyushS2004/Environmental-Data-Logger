@@ -67,7 +67,412 @@ static void MX_CRC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void Test_Print(const char *message)
+{
+    HAL_UART_Transmit(&huart2,
+                     (uint8_t *)message,
+                     (uint16_t)strlen(message),
+                     HAL_MAX_DELAY);
+}
 
+static void Test_PrintHexByte(uint8_t value)
+{
+    const char hex[] = "0123456789ABCDEF";
+    char text[3];
+
+    text[0] = hex[(value >> 4) & 0x0F];
+    text[1] = hex[value & 0x0F];
+    text[2] = '\0';
+
+    Test_Print(text);
+}
+
+typedef enum
+{
+    VERIFY_MODE_BLANK,
+    VERIFY_MODE_PATTERN
+} VerifyMode;
+
+typedef enum
+{
+    VERIFY_STATUS_OK,
+    VERIFY_STATUS_MISMATCH,
+    VERIFY_STATUS_READ_ERROR,
+    VERIFY_STATUS_BAD_ARGUMENT
+} VerifyStatus;
+
+typedef struct
+{
+    uint32_t mismatch_count;
+    uint32_t first_offset;
+    uint8_t first_expected;
+    uint8_t first_actual;
+} VerifyResult;
+
+static uint8_t PatternByte(uint32_t offset, uint8_t sector_index)
+{
+    uint32_t page = offset / 256U;
+    uint32_t position = offset % 256U;
+    uint32_t label = (uint32_t)sector_index * 16U + page;
+
+    return (uint8_t)(label * 7U + (position % 7U));
+}
+
+static VerifyStatus VerifySector(
+    uint32_t base_address,
+    VerifyMode mode,
+    uint8_t sector_index,
+    VerifyResult *result)
+{
+    uint8_t buffer[256];
+
+    if (result == NULL ||
+        (mode != VERIFY_MODE_BLANK &&
+         mode != VERIFY_MODE_PATTERN) ||
+        (mode == VERIFY_MODE_PATTERN && sector_index > 1U))
+    {
+        return VERIFY_STATUS_BAD_ARGUMENT;
+    }
+
+    result->mismatch_count = 0U;
+    result->first_offset = UINT32_MAX;
+    result->first_expected = 0U;
+    result->first_actual = 0U;
+
+    for (uint32_t page_offset = 0U;
+         page_offset < W25Q64_SECTOR_SIZE;
+         page_offset += sizeof(buffer))
+    {
+        if (Flash_Read(
+                base_address + page_offset,
+                buffer,
+                (uint16_t)sizeof(buffer),
+                &hspi1) != HAL_OK)
+        {
+            return VERIFY_STATUS_READ_ERROR;
+        }
+
+        for (uint32_t i = 0U; i < sizeof(buffer); ++i)
+        {
+            uint32_t offset = page_offset + i;
+            uint8_t expected = (mode == VERIFY_MODE_BLANK)
+                ? 0xFFU
+                : PatternByte(offset, sector_index);
+
+            if (buffer[i] != expected)
+            {
+                if (result->mismatch_count == 0U)
+                {
+                    result->first_offset = offset;
+                    result->first_expected = expected;
+                    result->first_actual = buffer[i];
+                }
+
+                result->mismatch_count++;
+            }
+        }
+    }
+
+    return (result->mismatch_count == 0U)
+        ? VERIFY_STATUS_OK
+        : VERIFY_STATUS_MISMATCH;
+}
+
+static void ReportSectorVerification(
+    const char *name,
+    VerifyStatus status,
+    const VerifyResult *result)
+{
+    char message[160];
+
+    if (status == VERIFY_STATUS_READ_ERROR)
+    {
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "ERROR: %s verification read failed; "
+            "mismatch count is incomplete\r\n",
+            name);
+        Test_Print(message);
+        return;
+    }
+
+    if (status == VERIFY_STATUS_BAD_ARGUMENT)
+    {
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "ERROR: %s verification received bad arguments\r\n",
+            name);
+        Test_Print(message);
+        return;
+    }
+
+    if (status == VERIFY_STATUS_OK)
+    {
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "PASS: %s verification, mismatches=0\r\n",
+            name);
+        Test_Print(message);
+        return;
+    }
+
+    (void)snprintf(
+        message,
+        sizeof(message),
+        "FAIL: %s offset=0x%03lX expected=0x%02X actual=0x%02X\r\n",
+        name,
+        (unsigned long)result->first_offset,
+        (unsigned int)result->first_expected,
+        (unsigned int)result->first_actual);
+    Test_Print(message);
+
+    (void)snprintf(
+        message,
+        sizeof(message),
+        "FAIL: %s total mismatches=%lu of %lu bytes\r\n",
+        name,
+        (unsigned long)result->mismatch_count,
+        (unsigned long)W25Q64_SECTOR_SIZE);
+    Test_Print(message);
+}
+
+static void Test_FlashEraseNeighbor(void)
+{
+    VerifyResult result_a;
+    VerifyResult result_b;
+    VerifyStatus status_a;
+    VerifyStatus status_b;
+    uint8_t page_buffer[256];
+    uint8_t test_pass = 1U;
+
+    Test_Print("\r\n=== Flash Erase Neighbor Test ===\r\n");
+
+    /* Step 1: Confirm flash initialization and JEDEC ID. */
+    {
+        uint8_t jedec_id[3];
+
+        if (Flash_ReadJEDECID(jedec_id, &hspi1) != HAL_OK)
+        {
+            Test_Print("FAIL: JEDEC ID read\r\n");
+            return;
+        }
+
+        if (jedec_id[0] != 0xEFU ||
+            jedec_id[1] != 0x40U ||
+            jedec_id[2] != 0x17U)
+        {
+            Test_Print("FAIL: Unexpected JEDEC ID\r\n");
+            return;
+        }
+
+        Test_Print("PASS: JEDEC ID EF 40 17\r\n");
+    }
+
+    /* Step 2: Erase sector A and blank-check every byte. */
+    Test_Print("[2] Erase sector A\r\n");
+
+    if (Flash_SectorErase(
+            FLASH_TEST_SECTOR_A_ADDRESS, &hspi1) != HAL_OK)
+    {
+        Test_Print("FAIL: Erase sector A\r\n");
+        return;
+    }
+
+    status_a = VerifySector(
+        FLASH_TEST_SECTOR_A_ADDRESS,
+        VERIFY_MODE_BLANK,
+        0U,
+        &result_a);
+
+    ReportSectorVerification("A setup blank check", status_a, &result_a);
+
+    if (status_a != VERIFY_STATUS_OK)
+    {
+        Test_Print("FAIL: Sector A setup verification\r\n");
+        return;
+    }
+
+    /* Step 3: Erase sector B and blank-check every byte. */
+    Test_Print("[3] Erase sector B\r\n");
+
+    if (Flash_SectorErase(
+            FLASH_TEST_SECTOR_B_ADDRESS, &hspi1) != HAL_OK)
+    {
+        Test_Print("FAIL: Erase sector B\r\n");
+        return;
+    }
+
+    status_b = VerifySector(
+        FLASH_TEST_SECTOR_B_ADDRESS,
+        VERIFY_MODE_BLANK,
+        1U,
+        &result_b);
+
+    ReportSectorVerification("B setup blank check", status_b, &result_b);
+
+    if (status_b != VERIFY_STATUS_OK)
+    {
+        Test_Print("FAIL: Sector B setup verification\r\n");
+        return;
+    }
+
+    /* Step 4: Program sector A, page by page. */
+    Test_Print("[4] Program sector A pattern\r\n");
+
+    for (uint32_t page_offset = 0U;
+         page_offset < W25Q64_SECTOR_SIZE;
+         page_offset += sizeof(page_buffer))
+    {
+        for (uint32_t i = 0U; i < sizeof(page_buffer); ++i)
+        {
+            page_buffer[i] = PatternByte(page_offset + i, 0U);
+        }
+
+        if (Flash_PageProgram(
+                FLASH_TEST_SECTOR_A_ADDRESS + page_offset,
+                page_buffer,
+                (uint16_t)sizeof(page_buffer),
+                &hspi1) != HAL_OK)
+        {
+            Test_Print("FAIL: Program sector A pattern\r\n");
+            return;
+        }
+    }
+
+    /* Step 5: Program sector B, page by page. */
+    Test_Print("[5] Program sector B pattern\r\n");
+
+    for (uint32_t page_offset = 0U;
+         page_offset < W25Q64_SECTOR_SIZE;
+         page_offset += sizeof(page_buffer))
+    {
+        for (uint32_t i = 0U; i < sizeof(page_buffer); ++i)
+        {
+            page_buffer[i] = PatternByte(page_offset + i, 1U);
+        }
+
+        if (Flash_PageProgram(
+                FLASH_TEST_SECTOR_B_ADDRESS + page_offset,
+                page_buffer,
+                (uint16_t)sizeof(page_buffer),
+                &hspi1) != HAL_OK)
+        {
+            Test_Print("FAIL: Program sector B pattern\r\n");
+            return;
+        }
+    }
+
+    /* Step 6: Verify all of A's programmed pattern. */
+    Test_Print("[6] Verify sector A pattern\r\n");
+
+    status_a = VerifySector(
+        FLASH_TEST_SECTOR_A_ADDRESS,
+        VERIFY_MODE_PATTERN,
+        0U,
+        &result_a);
+
+    ReportSectorVerification("A pre-erase pattern", status_a, &result_a);
+
+    if (status_a != VERIFY_STATUS_OK)
+    {
+        Test_Print("FAIL: Sector A pre-erase verification\r\n");
+        return;
+    }
+
+    /* Step 7: Verify all of B's programmed pattern. */
+    Test_Print("[7] Verify sector B pattern\r\n");
+
+    status_b = VerifySector(
+        FLASH_TEST_SECTOR_B_ADDRESS,
+        VERIFY_MODE_PATTERN,
+        1U,
+        &result_b);
+
+    ReportSectorVerification("B pre-erase pattern", status_b, &result_b);
+
+    if (status_b != VERIFY_STATUS_OK)
+    {
+        Test_Print("FAIL: Sector B pre-erase verification\r\n");
+        return;
+    }
+
+    /*
+     * Step 8: Erase A only, then blank-check A.
+     * Negative control: change only this call's address argument
+     * to FLASH_TEST_SECTOR_B_ADDRESS, then restore it afterward.
+     */
+    Test_Print("[8] Erase sector A and blank-check A\r\n");
+
+    if (Flash_SectorErase(
+            FLASH_TEST_SECTOR_A_ADDRESS, &hspi1) != HAL_OK)
+    {
+        Test_Print("FAIL: Sector A erase command\r\n");
+        test_pass = 0U;
+    }
+
+    status_a = VerifySector(
+        FLASH_TEST_SECTOR_A_ADDRESS,
+        VERIFY_MODE_BLANK,
+        0U,
+        &result_a);
+
+    ReportSectorVerification("A post-erase blank check", status_a, &result_a);
+
+    if (status_a != VERIFY_STATUS_OK)
+    {
+        test_pass = 0U;
+    }
+
+    /*
+     * Step 9: Always verify B, even if A's verification failed.
+     */
+    Test_Print("[9] Verify sector B survived\r\n");
+
+    status_b = VerifySector(
+        FLASH_TEST_SECTOR_B_ADDRESS,
+        VERIFY_MODE_PATTERN,
+        1U,
+        &result_b);
+
+    ReportSectorVerification("B post-erase pattern", status_b, &result_b);
+
+    if (status_b != VERIFY_STATUS_OK)
+    {
+        test_pass = 0U;
+    }
+
+    /* Step 10: Final verdict. */
+    Test_Print("[10] Final verdict\r\n");
+
+    if (status_a == VERIFY_STATUS_MISMATCH ||
+    status_b == VERIFY_STATUS_MISMATCH)
+    {
+      Test_Print("FAIL: Neighbor-sector erase test\r\n");
+    }
+    else if (status_a == VERIFY_STATUS_READ_ERROR ||
+             status_b == VERIFY_STATUS_READ_ERROR)
+    {
+      Test_Print("INCONCLUSIVE / READ ERROR\r\n");
+    }
+    else if (status_a == VERIFY_STATUS_BAD_ARGUMENT ||
+         status_b == VERIFY_STATUS_BAD_ARGUMENT)
+    {
+      Test_Print("INCONCLUSIVE / BAD ARGUMENT\r\n");
+    }
+    else if (status_a == VERIFY_STATUS_OK &&
+         status_b == VERIFY_STATUS_OK &&
+         test_pass != 0U)
+    {
+      Test_Print("PASS: Sector A erased; upper neighbor B intact\r\n");
+    }
+    else
+    {
+      Test_Print("FAIL: Neighbor-sector erase test\r\n");
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -112,9 +517,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  Test_FlashEraseNeighbor();
   while (1)
   {
-    
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

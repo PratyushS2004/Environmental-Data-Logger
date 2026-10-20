@@ -16,6 +16,35 @@ static inline void Flash_CS_High(void)
     HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
 }
 
+HAL_StatusTypeDef Flash_ReadJEDECID(uint8_t jedec_id[3], SPI_HandleTypeDef *handler){
+    if (jedec_id == NULL || handler == NULL){
+        return HAL_ERROR;
+    }
+
+    uint8_t cmd = 0x9F;
+    uint8_t id[3];
+
+    Flash_CS_Low();
+
+    HAL_StatusTypeDef result = HAL_SPI_Transmit(handler, &cmd, 1, FLASH_SPI_TIMEOUT_MS);
+
+    if (result == HAL_OK){
+        result = HAL_SPI_Receive(handler, id, sizeof(id), FLASH_SPI_TIMEOUT_MS);
+    }
+
+    Flash_CS_High();
+
+    if (result != HAL_OK){
+        return result;
+    }
+
+    jedec_id[0] = id[0];
+    jedec_id[1] = id[1];
+    jedec_id[2] = id[2];
+
+    return HAL_OK;
+}
+
 HAL_StatusTypeDef Flash_ReadStatus(uint8_t *status, SPI_HandleTypeDef *handler){
     uint8_t cmd = FLASH_CMD_READ_STATUS;
     HAL_StatusTypeDef result;
