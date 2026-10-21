@@ -884,7 +884,7 @@ int main(void)
           if (recovery_result.append_slot < FLASH_LOG_SLOT_COUNT)
           {
               Test_Print(
-                  "RECOVERY READY. LOGGER NOT STARTED.\r\n");
+                  "RECOVERY READY. LOGGER STARTING.\r\n");
           }
           else
           {
