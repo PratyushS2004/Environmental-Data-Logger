@@ -911,114 +911,226 @@ int main(void)
   }
 
 
-  
-  /*
-   * One-shot sensor and append test.
-   * Recovery failures leave the logger stopped.
-   */
-  if ((recovery_status == SCAN_OK) &&
-      (recovery_result.append_slot < FLASH_LOG_SLOT_COUNT))
-  {
-      uint8_t calib_1[Block_1_Length];
-      uint8_t calib_2[Block_2_Length];
-      BME280_Calibration calibration;
+/*
+ * Continuous logger.
+ * Recovery must succeed before any sensor or storage activity.
+ */
+if ((recovery_status == SCAN_OK) &&
+    (recovery_result.append_slot < FLASH_LOG_SLOT_COUNT))
+{
+    uint8_t calib_1[Block_1_Length];
+    uint8_t calib_2[Block_2_Length];
+    BME280_Calibration calibration;
 
-      int32_t temperature_centi_c;
-      uint32_t pressure_q24_8;
-      uint32_t humidity_q22_10;
+    uint32_t append_slot = recovery_result.append_slot;
+    uint32_t next_seq = recovery_result.next_seq;
+    uint32_t next_sample_tick = HAL_GetTick();
 
-      SensorRecord record;
-      HAL_StatusTypeDef sensor_status;
-      SensorRecordStatus record_status;
+    HAL_StatusTypeDef sensor_status;
 
-      uint32_t append_slot = recovery_result.append_slot;
-      uint32_t next_seq = recovery_result.next_seq;
+    sensor_status = BME280_Configure(&hi2c1);
 
-      sensor_status = BME280_Configure(&hi2c1);
+    if (sensor_status != HAL_OK)
+    {
+        Test_Print("SENSOR ERROR: CONFIGURE. LOGGER STOPPED.\r\n");
+        while (1) { HAL_Delay(1000); }
+    }
 
-      if (sensor_status != HAL_OK)
-      {
-          Test_Print("SENSOR ERROR: CONFIGURE. LOGGER STOPPED.\r\n");
-      }
-      else
-      {
-          sensor_status = BME280_ReadCalibration(
-              &hi2c1, calib_1, calib_2);
+    sensor_status = BME280_ReadCalibration(
+        &hi2c1, calib_1, calib_2);
 
-          if (sensor_status != HAL_OK)
-          {
-              Test_Print("SENSOR ERROR: CALIBRATION. LOGGER STOPPED.\r\n");
-          }
-          else
-          {
-              BME280_ParseCalibration(
-                  calib_1, calib_2, &calibration);
+    if (sensor_status != HAL_OK)
+    {
+        Test_Print("SENSOR ERROR: CALIBRATION. LOGGER STOPPED.\r\n");
+        while (1) { HAL_Delay(1000); }
+    }
 
-              sensor_status = BME280_ReadMeasurement(
-                  &hi2c1,
-                  &calibration,
-                  &temperature_centi_c,
-                  &pressure_q24_8,
-                  &humidity_q22_10);
+    BME280_ParseCalibration(
+        calib_1, calib_2, &calibration);
 
-              if (sensor_status != HAL_OK)
-              {
-                  Test_Print("SENSOR ERROR: MEASUREMENT. LOGGER STOPPED.\r\n");
-              }
-              else
-              {
-                  record_status = SensorRecord_Build(
-                      &record,
-                      next_seq,
-                      temperature_centi_c,
-                      pressure_q24_8,
-                      humidity_q22_10);
+    Test_Print("LOGGER STARTED period_ms=0x000000FA\r\n");
 
-                  if (record_status != SENSOR_RECORD_OK)
-                  {
-                      Test_Print("RECORD BUILD ERROR. LOGGER STOPPED.\r\n");
-                  }
-                  else
-                  {
-                      Test_Print("RECORD BUILD OK seq=0x");
-                      Test_PrintHex32(record.seq);
-                      Test_Print("\r\n");
+    while (1)
+    {
+        uint32_t now;
 
-                      if (Logger_AppendRecord(
-                              append_slot, &record, &hspi1) != HAL_OK)
-                      {
-                          Test_Print("LOGGER STORAGE FAULT. WRITES STOPPED.\r\n");
-                      }
-                      else
-                      {
-                          /*
-                           * Advance only after successful readback
-                           * classification as SENSOR_RECORD_VALID.
-                           */
-                          append_slot++;
-                          next_seq++;
+        /*
+         * Wait for the next scheduled sample start.
+         * Recheck the schedule after every delay.
+         */
+        while ((int32_t)(HAL_GetTick() - next_sample_tick) < 0)
+        {
+            HAL_Delay(1);
+        }
 
-                          Test_Print("APPEND STATE slot=0x");
-                          Test_PrintHex32(append_slot);
-                          Test_Print(" next_seq=0x");
-                          Test_PrintHex32(next_seq);
-                          Test_Print("\r\n");
+        /*
+         * A long operation or debugger pause may have caused
+         * scheduled sample slots to be missed.
+         * Skip them as a group, without writing flash.
+         */
+        now = HAL_GetTick();
 
-                          if (append_slot >= FLASH_LOG_SLOT_COUNT)
-                          {
-                              Test_Print("LOG FULL. WRITES STOPPED.\r\n");
-                          }
-                          else
-                          {
-                              Test_Print(
-                                  "ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.\r\n");
-                          }
-                      }
-                  }
-              }
-          }
-      }
-  }
+        if ((int32_t)(now - next_sample_tick) >= 250)
+        {
+            uint32_t late_ms = now - next_sample_tick;
+            uint32_t missed = (late_ms / 250U) + 1U;
+            uint32_t first_skipped_seq = next_seq;
+            uint32_t last_skipped_seq;
+
+            /*
+             * Never permit sequence-number wraparound.
+             */
+            if ((next_seq == UINT32_MAX) ||
+                (missed > (UINT32_MAX - next_seq)))
+            {
+                Test_Print(
+                    "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
+                while (1) { HAL_Delay(1000); }
+            }
+
+            last_skipped_seq = next_seq + missed - 1U;
+            next_seq += missed;
+            next_sample_tick += missed * 250U;
+
+            Test_Print("SAMPLES SKIPPED first_seq=0x");
+            Test_PrintHex32(first_skipped_seq);
+            Test_Print(" last_seq=0x");
+            Test_PrintHex32(last_skipped_seq);
+            Test_Print("\r\n");
+
+            /*
+             * Return to the top to recheck the deadline.
+             * Printing may itself have taken time.
+             */
+            continue;
+        }
+
+        /*
+         * A full log is an expected terminal condition,
+         * distinct from a storage fault.
+         */
+        if (append_slot >= FLASH_LOG_SLOT_COUNT)
+        {
+            Test_Print("LOG FULL. WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        /*
+         * A sequence of UINT32_MAX is reserved as the
+         * exhausted state, preventing increment wraparound.
+         */
+        if (next_seq == UINT32_MAX)
+        {
+            Test_Print(
+                "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        int32_t temperature_centi_c;
+        uint32_t pressure_q24_8;
+        uint32_t humidity_q22_10;
+
+        SensorRecord record;
+        SensorRecordStatus record_status;
+
+        sensor_status = BME280_ReadMeasurement(
+            &hi2c1,
+            &calibration,
+            &temperature_centi_c,
+            &pressure_q24_8,
+            &humidity_q22_10);
+
+        if (sensor_status != HAL_OK)
+        {
+            Test_Print("LOGGER FAULT: SENSOR READ FAILED. WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        record_status = SensorRecord_Build(
+            &record,
+            next_seq,
+            temperature_centi_c,
+            pressure_q24_8,
+            humidity_q22_10);
+
+        if (record_status != SENSOR_RECORD_OK)
+        {
+            Test_Print("LOGGER FAULT: RECORD BUILD FAILED. WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        /*
+         * Print the stored engineering units, not raw sensor
+         * fixed-point values. No floating-point formatting.
+         */
+        {
+            char line[128];
+            int32_t temp = record.temperature_centi_c;
+            uint32_t temp_magnitude =
+                (temp < 0) ? (uint32_t)(-temp) : (uint32_t)temp;
+
+            if (temp < 0)
+            {
+                (void)snprintf(
+                    line, sizeof(line),
+                    "SAMPLE seq=0x%08lX temp=-%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)record.seq,
+                    (unsigned long)(temp_magnitude / 100U),
+                    (unsigned long)(temp_magnitude % 100U),
+                    (unsigned long)record.pressure_pa,
+                    (unsigned long)(record.humidity_centi_pct / 100U),
+                    (unsigned long)(record.humidity_centi_pct % 100U));
+            }
+            else
+            {
+                (void)snprintf(
+                    line, sizeof(line),
+                    "SAMPLE seq=0x%08lX temp=%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)record.seq,
+                    (unsigned long)(temp_magnitude / 100U),
+                    (unsigned long)(temp_magnitude % 100U),
+                    (unsigned long)record.pressure_pa,
+                    (unsigned long)(record.humidity_centi_pct / 100U),
+                    (unsigned long)(record.humidity_centi_pct % 100U));
+            }
+
+            Test_Print(line);
+        }
+
+        /*
+         * Logger_AppendRecord performs the destination blank
+         * check, one program attempt, readback classification,
+         * and exact byte comparison.
+         */
+        if (Logger_AppendRecord(
+                append_slot, &record, &hspi1) != HAL_OK)
+        {
+            Test_Print(
+                "LOGGER FAULT: APPEND FAILED, WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        /*
+         * Advance state only after verified append.
+         * Skipped scheduled slots advance next_seq separately.
+         */
+        append_slot++;
+        next_seq++;
+
+        if (append_slot >= FLASH_LOG_SLOT_COUNT)
+        {
+            Test_Print("LOG FULL. WRITES STOPPED.\r\n");
+            while (1) { HAL_Delay(1000); }
+        }
+
+        /*
+         * Schedule the next sample start relative to the
+         * previous scheduled start, not completion time.
+         */
+        next_sample_tick += 250U;
+    }
+}
+
   /* USER CODE END RECOVERY_SCAN */
   
   //Test_FlashEraseNeighbor();
