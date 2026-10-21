@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "flash_layout.h"
+#include "recovery_scan.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define PROVISION_LOG 0
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -473,6 +474,313 @@ static void Test_FlashEraseNeighbor(void)
       Test_Print("FAIL: Neighbor-sector erase test\r\n");
     }
 }
+
+#define PROVISION_LOG_BASE          FLASH_LOG_BASE_ADDRESS
+#define PROVISION_LOG_SIZE          FLASH_LOG_SIZE_BYTES
+#define PROVISION_SECTOR_SIZE       W25Q64_SECTOR_SIZE
+#define PROVISION_SECTOR_COUNT      \
+    (PROVISION_LOG_SIZE / PROVISION_SECTOR_SIZE)
+
+#define PROVISION_VERIFY_CHUNK_SIZE 256U
+
+_Static_assert(
+    (PROVISION_LOG_SIZE % W25Q64_SECTOR_SIZE) == 0U,
+    "Log size must contain whole flash sectors"
+);
+
+_Static_assert(
+    PROVISION_LOG_BASE % W25Q64_SECTOR_SIZE == 0U,
+    "Log base must be sector-aligned"
+);
+
+_Static_assert(
+    PROVISION_LOG_BASE + PROVISION_LOG_SIZE ==
+        FLASH_LOG_END_ADDRESS,
+    "Provisioning region must match the approved log layout"
+);
+
+static void Test_PrintHex32(uint32_t value)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    char output[8];
+
+    for (uint32_t i = 0; i < 8U; i++)
+    {
+        uint32_t shift = 28U - (i * 4U);
+        output[i] = hex[(value >> shift) & 0x0FU];
+    }
+
+    HAL_UART_Transmit(&huart2,
+                      (uint8_t *)output,
+                      sizeof(output),
+                      HAL_MAX_DELAY);
+}
+
+static HAL_StatusTypeDef ProvisionLog(void)
+{
+    uint8_t buffer[PROVISION_VERIFY_CHUNK_SIZE];
+
+    Test_Print("PROVISION START base=0x");
+    Test_PrintHex32(PROVISION_LOG_BASE);
+    Test_Print(" size=0x");
+    Test_PrintHex32(PROVISION_LOG_SIZE);
+    Test_Print(" sectors=0x");
+    Test_PrintHex32(PROVISION_SECTOR_COUNT);
+    Test_Print("\r\n");
+
+    for (uint32_t sector = 0;
+         sector < PROVISION_SECTOR_COUNT;
+         sector++)
+    {
+        uint32_t sector_address =
+            PROVISION_LOG_BASE + (sector * PROVISION_SECTOR_SIZE);
+
+        /* Erase this sector. */
+        HAL_StatusTypeDef status =
+            Flash_SectorErase(sector_address, &hspi1);
+
+        if (status != HAL_OK)
+        {
+            Test_Print("PROVISION ERASE FAIL sector=0x");
+            Test_PrintHex32(sector);
+            Test_Print(" addr=0x");
+            Test_PrintHex32(sector_address);
+            Test_Print(" status=0x");
+            Test_PrintHexByte((uint8_t)status);
+            Test_Print("\r\n");
+
+            return status;
+        }
+
+        Test_Print("PROVISION ERASE sector=0x");
+        Test_PrintHex32(sector);
+        Test_Print(" addr=0x");
+        Test_PrintHex32(sector_address);
+        Test_Print(" OK\r\n");
+
+        /* Verify every byte in the sector. */
+        for (uint32_t offset = 0;
+             offset < PROVISION_SECTOR_SIZE;
+             offset += PROVISION_VERIFY_CHUNK_SIZE)
+        {
+            uint32_t address = sector_address + offset;
+
+            status = Flash_Read(address,
+                                buffer,
+                                (uint16_t)sizeof(buffer),
+                                &hspi1);
+
+            if (status != HAL_OK)
+            {
+                Test_Print("PROVISION READ FAIL sector=0x");
+                Test_PrintHex32(sector);
+                Test_Print(" addr=0x");
+                Test_PrintHex32(address);
+                Test_Print(" status=0x");
+                Test_PrintHexByte((uint8_t)status);
+                Test_Print("\r\n");
+
+                return status;
+            }
+
+            for (uint32_t i = 0; i < sizeof(buffer); i++)
+            {
+                if (buffer[i] != 0xFFU)
+                {
+                    Test_Print("PROVISION VERIFY FAIL sector=0x");
+                    Test_PrintHex32(sector);
+                    Test_Print(" addr=0x");
+                    Test_PrintHex32(address + i);
+                    Test_Print(" expected=0xFF actual=0x");
+                    Test_PrintHexByte(buffer[i]);
+                    Test_Print("\r\n");
+
+                    return HAL_ERROR;
+                }
+            }
+        }
+
+        Test_Print("PROVISION VERIFY sector=0x");
+        Test_PrintHex32(sector);
+        Test_Print(" addr=0x");
+        Test_PrintHex32(sector_address);
+        Test_Print(" OK\r\n");
+    }
+
+    Test_Print("PROVISION COMPLETE bytes_verified=16384\r\n");
+
+    return HAL_OK;
+}
+
+static const char *RecoveryStatusName(ScanStatus status)
+{
+    switch (status)
+    {
+        case SCAN_OK:
+            return "SCAN_OK";
+
+        case SCAN_FULL:
+            return "SCAN_FULL";
+
+        case SCAN_IO_ERROR:
+            return "SCAN_IO_ERROR";
+
+        case SCAN_BAD_ARGUMENT:
+            return "SCAN_BAD_ARGUMENT";
+
+        default:
+            return "UNKNOWN";
+    }
+}
+
+static ScanReadStatus Recovery_FlashRead(
+    void *context,
+    uint32_t address,
+    uint8_t *buffer,
+    uint32_t length)
+{
+    SPI_HandleTypeDef *hspi = (SPI_HandleTypeDef *)context;
+
+    if (hspi == NULL ||
+        buffer == NULL ||
+        length == 0U ||
+        length > UINT16_MAX)
+    {
+        return SCAN_READ_FAILED;
+    }
+
+    if (Flash_Read(address,
+                   buffer,
+                   (uint16_t)length,
+                   hspi) != HAL_OK)
+    {
+        return SCAN_READ_FAILED;
+    }
+
+    return SCAN_READ_OK;
+}
+
+static HAL_StatusTypeDef Logger_AppendRecord(
+    uint32_t slot,
+    const SensorRecord *record,
+    SPI_HandleTypeDef *hspi
+  );
+
+
+static HAL_StatusTypeDef Logger_AppendRecord(
+    uint32_t slot,
+    const SensorRecord *record,
+    SPI_HandleTypeDef *hspi)
+{
+    uint8_t existing[SENSOR_RECORD_SIZE_BYTES];
+    uint8_t readback[SENSOR_RECORD_SIZE_BYTES];
+    const uint8_t *record_bytes;
+    uint32_t address;
+    HAL_StatusTypeDef status;
+    SensorRecordClassification classification;
+
+    if (record == NULL || hspi == NULL ||
+        slot >= FLASH_LOG_SLOT_COUNT)
+    {
+        return HAL_ERROR;
+    }
+
+    address = FLASH_LOG_BASE_ADDRESS +
+              slot * SENSOR_RECORD_SIZE_BYTES;
+
+    /*
+     * Never program a slot unless the entire destination is erased.
+     */
+    status = Flash_Read(
+        address,
+        existing,
+        SENSOR_RECORD_SIZE_BYTES,
+        hspi);
+
+    if (status != HAL_OK)
+    {
+        Test_Print("APPEND ERROR: DESTINATION READ\r\n");
+        return status;
+    }
+
+    for (uint32_t i = 0U; i < SENSOR_RECORD_SIZE_BYTES; i++)
+    {
+        if (existing[i] != 0xFFU)
+        {
+            Test_Print("APPEND ERROR: DESTINATION NOT BLANK\r\n");
+            return HAL_ERROR;
+        }
+    }
+
+    /*
+     * SensorRecord is statically checked to be exactly 16 bytes.
+     * Program once only; an error can leave the slot uncertain.
+     */
+    record_bytes = (const uint8_t *)record;
+
+    status = Flash_PageProgram(
+        address,
+        record_bytes,
+        SENSOR_RECORD_SIZE_BYTES,
+        hspi);
+
+    if (status != HAL_OK)
+    {
+        Test_Print("APPEND ERROR: PAGE PROGRAM\r\n");
+        return status;
+    }
+
+    /*
+     * Verify using a separate buffer. Do not trust a successful
+     * PageProgram return as proof that the record is valid.
+     */
+    status = Flash_Read(
+        address,
+        readback,
+        SENSOR_RECORD_SIZE_BYTES,
+        hspi);
+
+    if (status != HAL_OK)
+    {
+        Test_Print("APPEND ERROR: READBACK\r\n");
+        return status;
+    }
+
+    classification = SensorRecord_Classify(readback);
+
+if (classification != SENSOR_RECORD_VALID)
+{
+    if (classification == SENSOR_RECORD_BLANK)
+    {
+        Test_Print("APPEND ERROR: READBACK BLANK\r\n");
+    }
+    else
+    {
+        Test_Print("APPEND ERROR: READBACK NOT VALID\r\n");
+    }
+
+    return HAL_ERROR;
+}
+
+/*
+ * A valid CRC alone does not establish that this is the
+ * exact record we intended to program.
+ */
+if (memcmp(readback, record_bytes, SENSOR_RECORD_SIZE_BYTES) != 0)
+{
+    Test_Print("APPEND ERROR: READBACK MISMATCH\r\n");
+    return HAL_ERROR;
+}
+
+    Test_Print("APPEND VERIFIED slot=0x");
+    Test_PrintHex32(slot);
+    Test_Print(" seq=0x");
+    Test_PrintHex32(record->seq);
+    Test_Print("\r\n");
+
+    return HAL_OK;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -517,7 +825,203 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  Test_FlashEraseNeighbor();
+  #if PROVISION_LOG
+
+    if (ProvisionLog() == HAL_OK)
+    {
+        Test_Print(
+            "PROVISION HALTED. FLASH NORMAL BUILD.\r\n");
+    }
+    else
+    {
+        Test_Print(
+            "PROVISION HALTED. FAILURE REPORTED ABOVE.\r\n");
+    }
+
+    while (1)
+    {
+    }
+
+  #endif
+
+    /* USER CODE BEGIN RECOVERY_SCAN */
+
+  ScanConfig recovery_config = {
+      .read = Recovery_FlashRead,
+      .classify = SensorRecord_Classify,
+      .context = &hspi1,
+      .base_address = FLASH_LOG_BASE_ADDRESS,
+      .slot_count = FLASH_LOG_SLOT_COUNT
+  };
+
+  ScanResult recovery_result;
+
+  uint32_t recovery_start = HAL_GetTick();
+
+  ScanStatus recovery_status =
+      RecoveryScan(&recovery_config, &recovery_result);
+
+  uint32_t recovery_elapsed =
+      HAL_GetTick() - recovery_start;
+
+  Test_Print("RECOVERY status=");
+  Test_Print(RecoveryStatusName(recovery_status));
+
+  Test_Print(" append_slot=0x");
+  Test_PrintHex32(recovery_result.append_slot);
+
+  Test_Print(" next_seq=0x");
+  Test_PrintHex32(recovery_result.next_seq);
+
+  Test_Print(" elapsed_ticks=0x");
+  Test_PrintHex32(recovery_elapsed);
+
+  Test_Print("\r\n");
+
+  switch (recovery_status)
+  {
+      case SCAN_OK:
+          if (recovery_result.append_slot < FLASH_LOG_SLOT_COUNT)
+          {
+              Test_Print(
+                  "RECOVERY READY. LOGGER NOT STARTED.\r\n");
+          }
+          else
+          {
+              Test_Print(
+                  "RECOVERY FAULT. INVALID APPEND SLOT.\r\n");
+          }
+          break;
+
+      case SCAN_FULL:
+          Test_Print(
+              "RECOVERY FULL. WRITES DISABLED.\r\n");
+          break;
+
+      case SCAN_IO_ERROR:
+          Test_Print(
+              "RECOVERY IO FAULT. WRITES DISABLED.\r\n");
+          break;
+
+      case SCAN_BAD_ARGUMENT:
+      default:
+          Test_Print(
+              "RECOVERY CONFIG FAULT. WRITES DISABLED.\r\n");
+          break;
+  }
+
+
+  
+  /*
+   * One-shot sensor and append test.
+   * Recovery failures leave the logger stopped.
+   */
+  if ((recovery_status == SCAN_OK) &&
+      (recovery_result.append_slot < FLASH_LOG_SLOT_COUNT))
+  {
+      uint8_t calib_1[Block_1_Length];
+      uint8_t calib_2[Block_2_Length];
+      BME280_Calibration calibration;
+
+      int32_t temperature_centi_c;
+      uint32_t pressure_q24_8;
+      uint32_t humidity_q22_10;
+
+      SensorRecord record;
+      HAL_StatusTypeDef sensor_status;
+      SensorRecordStatus record_status;
+
+      uint32_t append_slot = recovery_result.append_slot;
+      uint32_t next_seq = recovery_result.next_seq;
+
+      sensor_status = BME280_Configure(&hi2c1);
+
+      if (sensor_status != HAL_OK)
+      {
+          Test_Print("SENSOR ERROR: CONFIGURE. LOGGER STOPPED.\r\n");
+      }
+      else
+      {
+          sensor_status = BME280_ReadCalibration(
+              &hi2c1, calib_1, calib_2);
+
+          if (sensor_status != HAL_OK)
+          {
+              Test_Print("SENSOR ERROR: CALIBRATION. LOGGER STOPPED.\r\n");
+          }
+          else
+          {
+              BME280_ParseCalibration(
+                  calib_1, calib_2, &calibration);
+
+              sensor_status = BME280_ReadMeasurement(
+                  &hi2c1,
+                  &calibration,
+                  &temperature_centi_c,
+                  &pressure_q24_8,
+                  &humidity_q22_10);
+
+              if (sensor_status != HAL_OK)
+              {
+                  Test_Print("SENSOR ERROR: MEASUREMENT. LOGGER STOPPED.\r\n");
+              }
+              else
+              {
+                  record_status = SensorRecord_Build(
+                      &record,
+                      next_seq,
+                      temperature_centi_c,
+                      pressure_q24_8,
+                      humidity_q22_10);
+
+                  if (record_status != SENSOR_RECORD_OK)
+                  {
+                      Test_Print("RECORD BUILD ERROR. LOGGER STOPPED.\r\n");
+                  }
+                  else
+                  {
+                      Test_Print("RECORD BUILD OK seq=0x");
+                      Test_PrintHex32(record.seq);
+                      Test_Print("\r\n");
+
+                      if (Logger_AppendRecord(
+                              append_slot, &record, &hspi1) != HAL_OK)
+                      {
+                          Test_Print("LOGGER STORAGE FAULT. WRITES STOPPED.\r\n");
+                      }
+                      else
+                      {
+                          /*
+                           * Advance only after successful readback
+                           * classification as SENSOR_RECORD_VALID.
+                           */
+                          append_slot++;
+                          next_seq++;
+
+                          Test_Print("APPEND STATE slot=0x");
+                          Test_PrintHex32(append_slot);
+                          Test_Print(" next_seq=0x");
+                          Test_PrintHex32(next_seq);
+                          Test_Print("\r\n");
+
+                          if (append_slot >= FLASH_LOG_SLOT_COUNT)
+                          {
+                              Test_Print("LOG FULL. WRITES STOPPED.\r\n");
+                          }
+                          else
+                          {
+                              Test_Print(
+                                  "ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.\r\n");
+                          }
+                      }
+                  }
+              }
+          }
+      }
+  }
+  /* USER CODE END RECOVERY_SCAN */
+  
+  //Test_FlashEraseNeighbor();
   while (1)
   {
 
