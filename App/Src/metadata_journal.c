@@ -1,13 +1,10 @@
 #include "metadata_journal.h"
+#include "metadata_crc.h"
 
 #include <stddef.h>
 #include <string.h>
 
-#define METADATA_CRC_OFFSET_BYTES 8U
 #define METADATA_TAIL_OFFSET_BYTES 12U
-
-static uint32_t MetadataJournal_CalculateHeaderCRC(
-    const uint8_t header[METADATA_CRC_OFFSET_BYTES]);
 
 static uint32_t MetadataJournal_ReadU32LE(const uint8_t *data)
 {
@@ -79,7 +76,7 @@ MetadataEntryClassification MetadataJournal_ClassifyEntry(
     }
 
     const uint32_t calculated_crc =
-        MetadataJournal_CalculateHeaderCRC(entry);
+        MetadataCRC_CalculateHeader(entry);
 
     if (stored_crc != calculated_crc)
     {
