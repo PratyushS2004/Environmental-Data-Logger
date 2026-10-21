@@ -6,6 +6,7 @@
 /* W25Q64 physical geometry. */
 #define W25Q64_CAPACITY_BYTES 0x00800000U
 #define W25Q64_SECTOR_SIZE    0x00001000U
+#define W25Q64_PAGE_SIZE_BYTES 0x00000100U
 
 /*
  * Hardware reference:
@@ -22,6 +23,16 @@ _Static_assert(
 _Static_assert(
     W25Q64_SECTOR_SIZE == 0x00001000U,
     "W25Q64 sector size changed; verify the datasheet and layout"
+);
+
+_Static_assert(
+    W25Q64_PAGE_SIZE_BYTES == 256U,
+    "W25Q64 page size changed; verify the datasheet and layout"
+);
+
+_Static_assert(
+    (W25Q64_SECTOR_SIZE % W25Q64_PAGE_SIZE_BYTES) == 0U,
+    "Sector size must be a multiple of page size"
 );
 
 #endif
