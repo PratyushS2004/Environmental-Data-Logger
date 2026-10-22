@@ -1,0 +1,220 @@
+# Environment Logger: evidence excerpts
+
+Compiled 2026-10-21 from text pasted into chat sessions. These are excerpts as pasted, not the original captures. The original UART log files, the logic analyzer capture and the full decoder export were lost, so nothing here should be described as a complete log. Where a number was derived afterward, the entry says so.
+
+Commits referenced:
+
+* b49b12e: "Add log provisioning, boot recovery scan and one-shot append" (commit output pasted: 1 file changed, 506 insertions(+), 2 deletions(-))
+* 169358e: continuous sample loop (commit message not pasted; `git rev-parse --short HEAD` printed 169358e and `git status --short` showed only ` M .mxproject`)
+* 689b536: "Fix recovery ready message before logger start" (1 file changed, 1 insertion(+), 1 deletion(-); the only change is the RECOVERY READY string)
+
+## 1. Image b49b12e (one-shot append, provisioning)
+
+### 1.1 Two normal boots before provisioning
+
+The region already held slots 0 and 1 from earlier uncommitted builds, so these two boots appended slots 2 and 3 and resumed correctly. Hash printed with the paste: b49b12e.
+
+```
+RECOVERY status=SCAN_OK append_slot=0x00000002 next_seq=0x00000002 elapsed_ticks=0x00000000
+RECOVERY READY. LOGGER NOT STARTED.
+RECORD BUILD OK seq=0x00000002
+APPEND VERIFIED slot=0x00000002 seq=0x00000002
+APPEND STATE slot=0x00000003 next_seq=0x00000003
+ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.
+
+RECOVERY status=SCAN_OK append_slot=0x00000003 next_seq=0x00000003 elapsed_ticks=0x00000000
+RECOVERY READY. LOGGER NOT STARTED.
+RECORD BUILD OK seq=0x00000003
+APPEND VERIFIED slot=0x00000003 seq=0x00000003
+APPEND STATE slot=0x00000004 next_seq=0x00000004
+ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.
+```
+
+After these, the log region held four records, in slots 0 to 3. This is the "before" state for the erase proof.
+
+### 1.2 Provisioning run (erase and verify)
+
+```
+PROVISION START base=0x007F9000 size=0x00004000 sectors=0x00000004
+PROVISION ERASE sector=0x00000000 addr=0x007F9000 OK
+PROVISION VERIFY sector=0x00000000 addr=0x007F9000 OK
+PROVISION ERASE sector=0x00000001 addr=0x007FA000 OK
+PROVISION VERIFY sector=0x00000001 addr=0x007FA000 OK
+PROVISION ERASE sector=0x00000002 addr=0x007FB000 OK
+PROVISION VERIFY sector=0x00000002 addr=0x007FB000 OK
+PROVISION ERASE sector=0x00000003 addr=0x007FC000 OK
+PROVISION VERIFY sector=0x00000003 addr=0x007FC000 OK
+PROVISION COMPLETE bytes_verified=16384
+PROVISION HALTED. FLASH NORMAL BUILD.
+```
+
+### 1.3 Normal boots after provisioning
+
+`git status --short` afterward showed only ` M .mxproject`, so the flashed image matched the commit.
+
+```
+FLASH NORMAL BUILD.
+RECOVERY status=SCAN_OK append_slot=0x00000000 next_seq=0x00000000 elapsed_ticks=0x00000000
+RECOVERY READY. LOGGER NOT STARTED.
+RECORD BUILD OK seq=0x00000000
+APPEND VERIFIED slot=0x00000000 seq=0x00000000
+APPEND STATE slot=0x00000001 next_seq=0x00000001
+ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.
+RECOVERY status=SCAN_OK append_slot=0x00000001 next_seq=0x00000001 elapsed_ticks=0x00000000
+RECOVERY READY. LOGGER NOT STARTED.
+RECORD BUILD OK seq=0x00000001
+APPEND VERIFIED slot=0x00000001 seq=0x00000001
+APPEND STATE slot=0x00000002 next_seq=0x00000002
+ONE-SHOT APPEND COMPLETE. LOGGER STOPPED.
+```
+
+What 1.1 to 1.3 show together: the scan reported slot 4 and seq 4 before provisioning (the next boot would have), and slot 0 and seq 0 after, with programmed data erased in between. They show resume across reset and rebuild, the hardware CRC classify path on real records, and erase followed by a clean empty-log boot. They do not show a CORRUPT skip on real flash, the READBACK MISMATCH line, or a cut during a write. Two boots from an earlier uncommitted build (memcmp version) appended slots 0 and 1 before this commit; their output had the same shape and was not retrieved separately.
+
+## 2. Image 169358e (continuous loop)
+
+Trimmed in the original paste between seq 0x06 and 0xB4. The untrimmed capture was not kept.
+
+```
+RECOVERY status=SCAN_OK append_slot=0x00000002 next_seq=0x00000002 elapsed_ticks=0x00000000
+RECOVERY READY. LOGGER NOT STARTED.
+LOGGER STARTED period_ms=0x000000FA
+SAMPLE seq=0x00000002 temp=21.67C pressure=99260Pa humidity=47.70%RH
+APPEND VERIFIED slot=0x00000002 seq=0x00000002
+SAMPLE seq=0x00000003 temp=21.66C pressure=99259Pa humidity=47.43%RH
+APPEND VERIFIED slot=0x00000003 seq=0x00000003
+SAMPLE seq=0x00000004 temp=21.67C pressure=99266Pa humidity=47.71%RH
+APPEND VERIFIED slot=0x00000004 seq=0x00000004
+SAMPLE seq=0x00000005 temp=21.67C pressure=99254Pa humidity=47.54%RH
+APPEND VERIFIED slot=0x00000005 seq=0x00000005
+SAMPLE seq=0x00000006 temp=21.66C pressure=99256Pa humidity=47.31%RH
+[trimmed in original paste]
+SAMPLE seq=0x000000B4 temp=21.72C pressure=99261Pa humidity=49.98%RH
+APPEND VERIFIED slot=0x000000B4 seq=0x000000B4
+RECOVERY status=SCAN_OK append_slot=0x000000B5 next_seq=0x000000B5 elapsed_ticks=0x00000016
+RECOVERY READY. LOGGER NOT STARTED.
+LOGGER STARTED period_ms=0x000000FA
+SAMPLE seq=0x000000B5 temp=21.73C pressure=99264Pa humidity=49.79%RH
+APPEND VERIFIED slot=0x000000B5 seq=0x000000B5
+SAMPLE seq=0x000000B6 temp=21.72C pressure=99252Pa humidity=49.94%RH
+APPEND VERIFIED slot=0x000000B6 seq=0x000000B6
+SAMPLE seq=0x000000B7 temp=21.71C pressure=99262Pa humidity=49.80%RH
+APPEND VERIFIED slot=0x000000B7 seq=0x000000B7
+SAMPLE seq=0x000000B8 temp=21.73C pressure=99262Pa humidity=49.64%RH
+```
+
+Reading of the excerpt: 179 appends from seq 0x02 through 0xB4 with slot equal to seq, so no skips in that stretch. The reset landed between cycles and the scan resumed at 0xB5. The scan took 22 ms (0x16) for 182 reads, about 121 µs per read, against an estimated 61 µs of wire time.
+
+## 3. Image 689b536 (full-log run)
+
+Commit and diff as pasted:
+
+```
+[main 689b536] Fix recovery ready message before logger start
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+-                  "RECOVERY READY. LOGGER NOT STARTED.\r\n");
++                  "RECOVERY READY. LOGGER STARTING.\r\n");
+```
+
+Image identification: the flashed image printed `LOGGER STARTING`, the string this commit introduced. That edit was the only change in the commit, and `git status --short` showed only ` M .mxproject` right after it, so the tree matched 689b536.
+
+### 3.1 Reset at slot 0x2C0
+
+The reset was a manual press of the board's reset button. The UART capture ended partway through a SAMPLE line before the append, and the scan resumed at that slot. The garbled byte is as pasted.
+
+```
+SAMPLE seq=0x000002C0 temp=21.80C pressure▒RECOVERY status=SCAN_OK append_slot=0x000002C0 next_seq=0x000002C0 elapsed_ticks=0x00000056
+RECOVERY READY. LOGGER STARTING.
+LOGGER STARTED period_ms=0x000000FA
+SAMPLE seq=0x000002C0 temp=21.81C pressure=99255Pa humidity=47.96%RH
+APPEND VERIFIED slot=0x000002C0 seq=0x000002C0
+SAMPLE seq=0x000002C1 temp=21.80C pressure=99254Pa humidity=47.65%RH
+APPEND VERIFIED slot=0x000002C1 seq=0x000002C1
+SAMPLE seq=0x000002C2 temp=21.81C pressure=99263Pa humidity=47.60%RH
+```
+
+The scan took 86 ms (0x56) for 705 reads (704 valid plus the blank at 0x2C0), about 122 µs per read, matching the 121 µs per read from the earlier run. This shows resume after a manual reset that interrupted a cycle before the program step. It does not show a power loss during a flash program.
+
+### 3.2 End of the fill
+
+```
+SAMPLE seq=0x000003F9 temp=21.84C pressure=99261Pa humidity=48.10%RH
+APPEND VERIFIED slot=0x000003F9 seq=0x000003F9
+SAMPLE seq=0x000003FA temp=21.84C pressure=99257Pa humidity=48.10%RH
+APPEND VERIFIED slot=0x000003FA seq=0x000003FA
+SAMPLE seq=0x000003FB temp=21.84C pressure=99261Pa humidity=47.63%RH
+APPEND VERIFIED slot=0x000003FB seq=0x000003FB
+SAMPLE seq=0x000003FC temp=21.85C pressure=99259Pa humidity=47.83%RH
+APPEND VERIFIED slot=0x000003FC seq=0x000003FC
+SAMPLE seq=0x000003FD temp=21.84C pressure=99250Pa humidity=47.86%RH
+APPEND VERIFIED slot=0x000003FD seq=0x000003FD
+SAMPLE seq=0x000003FE temp=21.85C pressure=99260Pa humidity=47.86%RH
+APPEND VERIFIED slot=0x000003FE seq=0x000003FE
+SAMPLE seq=0x000003FF temp=21.85C pressure=99256Pa humidity=47.78%RH
+APPEND VERIFIED slot=0x000003FF seq=0x000003FF
+LOG FULL. WRITES STOPPED.
+```
+
+Skip check: the last record has slot 0x3FF and seq 0x3FF, so final_seq minus 0x3FF is 0. No scheduled samples were skipped anywhere in the fill, across every reset. This assumes slot 0 holds seq 0, which the slot 0 decode in section 4 shows.
+
+Which image wrote which slots: the b49b12e one-shot build wrote slots 0 and 1 (first boots after provisioning), 169358e wrote the next stretch starting at slot 2, and 689b536 wrote the rest. The slot where 169358e handed over to 689b536 was not recorded.
+
+### 3.3 Boot on the full log
+
+Reset on the full log, UART output as pasted:
+
+```
+RECOVERY status=SCAN_FULL append_slot=0xFFFFFFFF next_seq=0x00000400 elapsed_ticks=0x0000007D
+RECOVERY FULL. WRITES DISABLED.
+```
+
+No LOGGER STARTED line followed. The scan took 125 ms (0x7D) for 1024 reads.
+
+## 4. Logic analyzer evidence on the full-log boot (689b536)
+
+The capture file and the full decoder export were lost. What remains is what was pasted or read from screenshots.
+
+Channel mapping as read from the waveform and decoder, not traced on the wires: D0 is CS, D1 is MISO, D2 is SCK, D3 is MOSI. The ground connection was not recorded, and the earlier claim that the pins are PB6, PA5, PA6 and PA7 was never checked.
+
+Decoder counts, from Notepad++ searches on the exported text: 1024 lines contain `MOSI transfers:`, 1023 of them start with `03`, and the one that does not is the first transaction (see below). No line starting `06`, `20` or `02` was found, so no write enable, sector erase or page program appears in the decoded capture. A transaction the decoder dropped would also be invisible, but the total count matches the expected 1024.
+
+Last transaction (slot 0x3FF), decoder text as pasted:
+
+```
+8434547-8437257 SPI: MOSI transfers: 03 7F CF F0 FE 03 00 00 BC 83 01 00 89 08 B2 12 CC 2D FD C4
+8434547-8437257 SPI: MISO transfers: FF FF FF FF FF 03 00 00 B8 83 01 00 89 08 AA 12 61 A8 46 05
+```
+
+Decode of the 16 payload bytes: seq 0x000003FF, pressure 0x000183B8 (99256 Pa), temperature 0x0889 (21.85 C), humidity 0x12AA (47.78 %RH), stored CRC 0x0546A861. The values match the `SAMPLE seq=0x000003FF` line, and address 7F CF F0 returned the record with seq 0x3FF. The 16 MOSI bytes after the header are the previous record (seq 0x3FE), which is leftover receive-buffer content that `HAL_SPI_Receive` transmits.
+
+First two transactions, decoder text as pasted:
+
+```
+5430616-5433336 SPI: MOSI transfers: 81 BF C8 00 03 80 00 14 30 7F 00 90 5B 9F 00 04 00 00 00 00
+5430616-5433336 SPI: MISO transfers: FF FF FF FF 80 00 00 00 59 C1 80 80 35 84 3B 89 7C 62 AD C5
+5433560-5436273 SPI: MOSI transfers: 03 7F 90 10 00 00 00 00 B3 83 01 00 6B 08 77 12 F8 C5 5B 8B
+```
+
+The first transaction is the intended `03 7F 90 00` read with one extra leading 1 bit in the decoder's view, which regroups into `81 BF C8 00`. Dropping that bit from the MISO line gives the slot 0 record, whose final byte `8B` is supplied by the second transaction's MOSI leftovers: seq 0, pressure 0x000183B3 (99251 Pa), temperature 0x086B (21.55 C), humidity 0x1277 (47.27 %RH), stored CRC 0x8B5BC5F8. The CRC-32/MPEG-2 of the words 0x00000000, 0x000183B3 and 0x1277086B was recomputed independently and equals 0x8B5BC5F8. The same routine gives 0x0145B905 for the SEEDED header, matching the board anchor.
+
+First-transaction anomaly, observed only: at the sample level, CS falls and SCK has a short low pulse starting at the same instant, about 0.28 µs wide. SCK rises again, and the decoder counts that rising edge as the first clock. SCK then falls together with MOSI about 2.4 µs after CS asserts, and the 32 real clocks follow. Before the scan SCK sat high from the reset edge. Later transactions inspected (the second and the last) start with SCK low and no pulse. The firmware configures SPI1 as Mode 0 (`SPI_POLARITY_LOW`, `SPI_PHASE_1EDGE`). The flash returned a CRC-valid slot 0 regardless. The cause is unknown, and the capture does not show whether the pulse was present at the flash's own CLK pin. A hypothesis, not confirmed in the HAL source, is that the peripheral is enabled by the first transfer. Not checked: whether all 1022 other transactions start with SCK low.
+
+Timing from the capture: CS first fell at about 226.28 ms and last rose at about 351.56 ms on the screenshot axis, a span of about 125.3 ms, against `elapsed_ticks=0x7D` (125 ms). The decoder sample indices (first start 5430616, last end 8437257) give 3,006,641 samples, which equals 125.3 ms only at 24 MS/s. That rate was not recorded, but the two time sources together imply it. Derived from the pasted indices at 24 MS/s: slot 0 to slot 1 CS fall to CS fall is 2944 samples, about 122.7 µs, of which the CS-low part is about 2713 samples, about 113 µs. These are approximate. The wire time at 2.625 MHz for 20 bytes is about 61 µs, so the rest is gaps between bytes and between reads. The capture shows where the time goes, not which C function spends it.
+
+## 5. Predictions against results (689b536)
+
+* Last lines before the stop: predicted `SAMPLE seq=0x000003FF`, `APPEND VERIFIED slot=0x000003FF seq=0x000003FF`, `LOG FULL. WRITES STOPPED.`. Held.
+* Boot on the full log: predicted `SCAN_FULL`, `append_slot=0xFFFFFFFF`, `next_seq=0x00000400`, `RECOVERY FULL. WRITES DISABLED.`, no LOGGER STARTED. Held on every field.
+* Scan time: predicted 65 to 85 ms (0x41 to 0x55), recorded before the run. Missed. Measured 125 ms (0x7D), matching the extrapolation of about 124 ms from the partial scans (22 ms for 182 reads, 86 ms for 705 reads).
+* Last transaction on the wire: predicted MOSI header `03 7F CF F0` and payload starting `FF 03 00 00`. Held.
+* First transaction on the wire: predicted a clean `03 7F 90 00` header. Missed as decoded (one extra leading bit); the data was nonetheless the correct record.
+* No `06`, `20` or `02` during recovery: held in the decoded capture.
+
+## 6. What this evidence does not cover
+
+* The untrimmed fill logs, the middles of the 169358e and 689b536 runs, the analyzer capture and the full decoder export are lost.
+* Slot to address mapping is verified on the wire for slots 0 and 0x3FF only. The check that all 1024 addresses step by exactly 0x10 was not run.
+* The CORRUPT skip on real flash with the current code, the `READBACK MISMATCH` line and the SAMPLES SKIPPED path have not fired on hardware.
+* No power cycle (USB unplugged) repeat of the full-log boot has been captured, and no cut during a flash program was tested.
+* A manual reset interrupted a cycle between the SAMPLE print and the append. That is resume after interruption, not survival of a power cut mid write. Describe torn-record handling as recovered from simulated torn records.
+* Datasheet figures (erase times, BME280 measurement time, page program time) and the F446 CRC unit details were not checked against the datasheets.
