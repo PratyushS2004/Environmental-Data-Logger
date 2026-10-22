@@ -76,171 +76,6 @@ static void Test_Print(const char *message)
                      HAL_MAX_DELAY);
 }
 
-static void Test_PrintHexByte(uint8_t value)
-{
-    const char hex[] = "0123456789ABCDEF";
-    char text[3];
-
-    text[0] = hex[(value >> 4) & 0x0F];
-    text[1] = hex[value & 0x0F];
-    text[2] = '\0';
-
-    Test_Print(text);
-}
-
-typedef enum
-{
-    VERIFY_MODE_BLANK,
-    VERIFY_MODE_PATTERN
-} VerifyMode;
-
-typedef enum
-{
-    VERIFY_STATUS_OK,
-    VERIFY_STATUS_MISMATCH,
-    VERIFY_STATUS_READ_ERROR,
-    VERIFY_STATUS_BAD_ARGUMENT
-} VerifyStatus;
-
-typedef struct
-{
-    uint32_t mismatch_count;
-    uint32_t first_offset;
-    uint8_t first_expected;
-    uint8_t first_actual;
-} VerifyResult;
-
-static uint8_t PatternByte(uint32_t offset, uint8_t sector_index)
-{
-    uint32_t page = offset / 256U;
-    uint32_t position = offset % 256U;
-    uint32_t label = (uint32_t)sector_index * 16U + page;
-
-    return (uint8_t)(label * 7U + (position % 7U));
-}
-
-static VerifyStatus VerifySector(
-    uint32_t base_address,
-    VerifyMode mode,
-    uint8_t sector_index,
-    VerifyResult *result)
-{
-    uint8_t buffer[256];
-
-    if (result == NULL ||
-        (mode != VERIFY_MODE_BLANK &&
-         mode != VERIFY_MODE_PATTERN) ||
-        (mode == VERIFY_MODE_PATTERN && sector_index > 1U))
-    {
-        return VERIFY_STATUS_BAD_ARGUMENT;
-    }
-
-    result->mismatch_count = 0U;
-    result->first_offset = UINT32_MAX;
-    result->first_expected = 0U;
-    result->first_actual = 0U;
-
-    for (uint32_t page_offset = 0U;
-         page_offset < W25Q64_SECTOR_SIZE;
-         page_offset += sizeof(buffer))
-    {
-        if (Flash_Read(
-                base_address + page_offset,
-                buffer,
-                (uint16_t)sizeof(buffer),
-                &hspi1) != HAL_OK)
-        {
-            return VERIFY_STATUS_READ_ERROR;
-        }
-
-        for (uint32_t i = 0U; i < sizeof(buffer); ++i)
-        {
-            uint32_t offset = page_offset + i;
-            uint8_t expected = (mode == VERIFY_MODE_BLANK)
-                ? 0xFFU
-                : PatternByte(offset, sector_index);
-
-            if (buffer[i] != expected)
-            {
-                if (result->mismatch_count == 0U)
-                {
-                    result->first_offset = offset;
-                    result->first_expected = expected;
-                    result->first_actual = buffer[i];
-                }
-
-                result->mismatch_count++;
-            }
-        }
-    }
-
-    return (result->mismatch_count == 0U)
-        ? VERIFY_STATUS_OK
-        : VERIFY_STATUS_MISMATCH;
-}
-
-static void ReportSectorVerification(
-    const char *name,
-    VerifyStatus status,
-    const VerifyResult *result)
-{
-    char message[160];
-
-    if (status == VERIFY_STATUS_READ_ERROR)
-    {
-        (void)snprintf(
-            message,
-            sizeof(message),
-            "ERROR: %s verification read failed; "
-            "mismatch count is incomplete\r\n",
-            name);
-        Test_Print(message);
-        return;
-    }
-
-    if (status == VERIFY_STATUS_BAD_ARGUMENT)
-    {
-        (void)snprintf(
-            message,
-            sizeof(message),
-            "ERROR: %s verification received bad arguments\r\n",
-            name);
-        Test_Print(message);
-        return;
-    }
-
-    if (status == VERIFY_STATUS_OK)
-    {
-        (void)snprintf(
-            message,
-            sizeof(message),
-            "PASS: %s verification, mismatches=0\r\n",
-            name);
-        Test_Print(message);
-        return;
-    }
-
-    (void)snprintf(
-        message,
-        sizeof(message),
-        "FAIL: %s offset=0x%03lX expected=0x%02X actual=0x%02X\r\n",
-        name,
-        (unsigned long)result->first_offset,
-        (unsigned int)result->first_expected,
-        (unsigned int)result->first_actual);
-    Test_Print(message);
-
-    (void)snprintf(
-        message,
-        sizeof(message),
-        "FAIL: %s total mismatches=%lu of %lu bytes\r\n",
-        name,
-        (unsigned long)result->mismatch_count,
-        (unsigned long)W25Q64_SECTOR_SIZE);
-    Test_Print(message);
-}
-
-
 #define PROVISION_LOG_BASE          FLASH_LOG_BASE_ADDRESS
 #define PROVISION_LOG_SIZE          FLASH_LOG_SIZE_BYTES
 #define PROVISION_SECTOR_SIZE       W25Q64_SECTOR_SIZE
@@ -280,6 +115,19 @@ static void Test_PrintHex32(uint32_t value)
                       (uint8_t *)output,
                       sizeof(output),
                       HAL_MAX_DELAY);
+}
+
+#if PROVISION_LOG
+static void Test_PrintHexByte(uint8_t value)
+{
+    const char hex[] = "0123456789ABCDEF";
+    char text[3];
+
+    text[0] = hex[(value >> 4) & 0x0F];
+    text[1] = hex[value & 0x0F];
+    text[2] = '\0';
+
+    Test_Print(text);
 }
 
 static HAL_StatusTypeDef ProvisionLog(void)
@@ -377,6 +225,7 @@ static HAL_StatusTypeDef ProvisionLog(void)
 
     return HAL_OK;
 }
+#endif
 
 static const char *RecoveryStatusName(ScanStatus status)
 {
