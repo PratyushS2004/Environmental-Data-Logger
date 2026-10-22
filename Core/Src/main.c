@@ -432,7 +432,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
-
+  __HAL_SPI_ENABLE(&hspi1);   /* drive SCK to Mode 0 idle low before CS is ever asserted */
   /* USER CODE END 2 */
 
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
