@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -51,6 +52,13 @@ SPI_HandleTypeDef hspi1;
 
 UART_HandleTypeDef huart2;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -62,6 +70,8 @@ static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_CRC_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -292,7 +302,6 @@ static HAL_StatusTypeDef Logger_AppendRecord(
     const uint8_t *record_bytes;
     uint32_t address;
     HAL_StatusTypeDef status;
-    SensorRecordClassification classification;
 
     if (record == NULL || hspi == NULL ||
         slot >= FLASH_LOG_SLOT_COUNT)
@@ -361,31 +370,17 @@ static HAL_StatusTypeDef Logger_AppendRecord(
         return status;
     }
 
-    classification = SensorRecord_Classify(readback);
-
-if (classification != SENSOR_RECORD_VALID)
-{
-    if (classification == SENSOR_RECORD_BLANK)
+    /*
+     * The record arrived with a CRC computed by SensorRecord_Build,
+     * so a byte-exact readback implies a valid CRC. No CRC is
+     * recomputed here; this keeps the CRC peripheral used by a
+     * single task once the scheduler runs.
+     */
+    if (memcmp(readback, record_bytes, SENSOR_RECORD_SIZE_BYTES) != 0)
     {
-        Test_Print("APPEND ERROR: READBACK BLANK\r\n");
+        Test_Print("APPEND ERROR: READBACK MISMATCH\r\n");
+        return HAL_ERROR;
     }
-    else
-    {
-        Test_Print("APPEND ERROR: READBACK NOT VALID\r\n");
-    }
-
-    return HAL_ERROR;
-}
-
-/*
- * A valid CRC alone does not establish that this is the
- * exact record we intended to program.
- */
-if (memcmp(readback, record_bytes, SENSOR_RECORD_SIZE_BYTES) != 0)
-{
-    Test_Print("APPEND ERROR: READBACK MISMATCH\r\n");
-    return HAL_ERROR;
-}
 
     Test_Print("APPEND VERIFIED slot=0x");
     Test_PrintHex32(slot);
@@ -435,8 +430,44 @@ int main(void)
   __HAL_SPI_ENABLE(&hspi1);   /* drive SCK to Mode 0 idle low before CS is ever asserted */
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -972,6 +1003,46 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
