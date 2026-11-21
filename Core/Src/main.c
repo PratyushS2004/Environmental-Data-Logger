@@ -52,15 +52,33 @@ SPI_HandleTypeDef hspi1;
 
 UART_HandleTypeDef huart2;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
+/* Definitions for SensorTask */
+osThreadId_t SensorTaskHandle;
+const osThreadAttr_t SensorTask_attributes = {
+  .name = "SensorTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
+/* Definitions for StorageTask */
+osThreadId_t StorageTaskHandle;
+const osThreadAttr_t StorageTask_attributes = {
+  .name = "StorageTask",
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for recordQueue */
+osMessageQueueId_t recordQueueHandle;
+const osMessageQueueAttr_t recordQueue_attributes = {
+  .name = "recordQueue" 
+};
+/* Definitions for uartMutex */
+osMutexId_t uartMutexHandle;
+const osMutexAttr_t uartMutex_attributes = {
+  .name = "uartMutex"
+};
 /* USER CODE BEGIN PV */
-
+static ScanResult recovery_result;
+static BME280_Calibration calibration;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,7 +88,8 @@ static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_CRC_Init(void);
-void StartDefaultTask(void *argument);
+void StartSensorTask(void *argument);
+void StartStorageTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -80,10 +99,20 @@ void StartDefaultTask(void *argument);
 /* USER CODE BEGIN 0 */
 static void Test_Print(const char *message)
 {
-    HAL_UART_Transmit(&huart2,
-                     (uint8_t *)message,
-                     (uint16_t)strlen(message),
-                     HAL_MAX_DELAY);
+    if(uartMutexHandle != NULL){
+        osMutexAcquire(uartMutexHandle, osWaitForever);
+        HAL_UART_Transmit(&huart2,
+                 (uint8_t *)message,
+                 (uint16_t)strlen(message),
+                 HAL_MAX_DELAY);
+        osMutexRelease(uartMutexHandle);         
+    }else{
+        HAL_UART_Transmit(&huart2,
+                 (uint8_t *)message,
+                 (uint16_t)strlen(message),
+                 HAL_MAX_DELAY);
+    }
+
 }
 
 #define PROVISION_LOG_BASE          FLASH_LOG_BASE_ADDRESS
@@ -428,50 +457,8 @@ int main(void)
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
   __HAL_SPI_ENABLE(&hspi1);   /* drive SCK to Mode 0 idle low before CS is ever asserted */
-  /* USER CODE END 2 */
-
-  /* Init scheduler */
-  osKernelInitialize();
-
-  /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
-  /* USER CODE END RTOS_MUTEX */
-
-  /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  /* USER CODE END RTOS_SEMAPHORES */
-
-  /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
-  /* USER CODE END RTOS_TIMERS */
-
-  /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  /* USER CODE END RTOS_QUEUES */
-
-  /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  /* USER CODE END RTOS_THREADS */
-
-  /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
-  /* USER CODE END RTOS_EVENTS */
-
-  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
-  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
-
-  /* Start scheduler */
-  osKernelStart();
-
-  /* We should never get here as control is now taken by the scheduler */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  #if PROVISION_LOG
+  
+    #if PROVISION_LOG
 
     if (ProvisionLog() == HAL_OK)
     {
@@ -490,7 +477,7 @@ int main(void)
 
   #endif
 
-    /* USER CODE BEGIN RECOVERY_SCAN */
+    /* RECOVERY_SCAN */
 
   ScanConfig recovery_config = {
       .read = Recovery_FlashRead,
@@ -499,8 +486,6 @@ int main(void)
       .base_address = FLASH_LOG_BASE_ADDRESS,
       .slot_count = FLASH_LOG_SLOT_COUNT
   };
-
-  ScanResult recovery_result;
 
   uint32_t recovery_start = HAL_GetTick();
 
@@ -566,11 +551,6 @@ if ((recovery_status == SCAN_OK) &&
 {
     uint8_t calib_1[Block_1_Length];
     uint8_t calib_2[Block_2_Length];
-    BME280_Calibration calibration;
-
-    uint32_t append_slot = recovery_result.append_slot;
-    uint32_t next_seq = recovery_result.next_seq;
-    uint32_t next_sample_tick = HAL_GetTick();
 
     HAL_StatusTypeDef sensor_status;
 
@@ -595,190 +575,62 @@ if ((recovery_status == SCAN_OK) &&
         calib_1, calib_2, &calibration);
 
     Test_Print("LOGGER STARTED period_ms=0x000000FA\r\n");
-
-    while (1)
-    {
-        uint32_t now;
-
-        /*
-         * Wait for the next scheduled sample start.
-         * Recheck the schedule after every delay.
-         */
-        while ((int32_t)(HAL_GetTick() - next_sample_tick) < 0)
-        {
-            HAL_Delay(1);
-        }
-
-        /*
-         * A long operation or debugger pause may have caused
-         * scheduled sample slots to be missed.
-         * Skip them as a group, without writing flash.
-         */
-        now = HAL_GetTick();
-
-        if ((int32_t)(now - next_sample_tick) >= 250)
-        {
-            uint32_t late_ms = now - next_sample_tick;
-            uint32_t missed = (late_ms / 250U) + 1U;
-            uint32_t first_skipped_seq = next_seq;
-            uint32_t last_skipped_seq;
-
-            /*
-             * Never permit sequence-number wraparound.
-             */
-            if ((next_seq == UINT32_MAX) ||
-                (missed > (UINT32_MAX - next_seq)))
-            {
-                Test_Print(
-                    "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
-                while (1) { HAL_Delay(1000); }
-            }
-
-            last_skipped_seq = next_seq + missed - 1U;
-            next_seq += missed;
-            next_sample_tick += missed * 250U;
-
-            Test_Print("SAMPLES SKIPPED first_seq=0x");
-            Test_PrintHex32(first_skipped_seq);
-            Test_Print(" last_seq=0x");
-            Test_PrintHex32(last_skipped_seq);
-            Test_Print("\r\n");
-
-            /*
-             * Return to the top to recheck the deadline.
-             * Printing may itself have taken time.
-             */
-            continue;
-        }
-
-        /*
-         * A full log is an expected terminal condition,
-         * distinct from a storage fault.
-         */
-        if (append_slot >= FLASH_LOG_SLOT_COUNT)
-        {
-            Test_Print("LOG FULL. WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        /*
-         * A sequence of UINT32_MAX is reserved as the
-         * exhausted state, preventing increment wraparound.
-         */
-        if (next_seq == UINT32_MAX)
-        {
-            Test_Print(
-                "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        int32_t temperature_centi_c;
-        uint32_t pressure_q24_8;
-        uint32_t humidity_q22_10;
-
-        SensorRecord record;
-        SensorRecordStatus record_status;
-
-        sensor_status = BME280_ReadMeasurement(
-            &hi2c1,
-            &calibration,
-            &temperature_centi_c,
-            &pressure_q24_8,
-            &humidity_q22_10);
-
-        if (sensor_status != HAL_OK)
-        {
-            Test_Print("LOGGER FAULT: SENSOR READ FAILED. WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        record_status = SensorRecord_Build(
-            &record,
-            next_seq,
-            temperature_centi_c,
-            pressure_q24_8,
-            humidity_q22_10);
-
-        if (record_status != SENSOR_RECORD_OK)
-        {
-            Test_Print("LOGGER FAULT: RECORD BUILD FAILED. WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        /*
-         * Print the stored engineering units, not raw sensor
-         * fixed-point values. No floating-point formatting.
-         */
-        {
-            char line[128];
-            int32_t temp = record.temperature_centi_c;
-            uint32_t temp_magnitude =
-                (temp < 0) ? (uint32_t)(-temp) : (uint32_t)temp;
-
-            if (temp < 0)
-            {
-                (void)snprintf(
-                    line, sizeof(line),
-                    "SAMPLE seq=0x%08lX temp=-%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
-                    (unsigned long)record.seq,
-                    (unsigned long)(temp_magnitude / 100U),
-                    (unsigned long)(temp_magnitude % 100U),
-                    (unsigned long)record.pressure_pa,
-                    (unsigned long)(record.humidity_centi_pct / 100U),
-                    (unsigned long)(record.humidity_centi_pct % 100U));
-            }
-            else
-            {
-                (void)snprintf(
-                    line, sizeof(line),
-                    "SAMPLE seq=0x%08lX temp=%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
-                    (unsigned long)record.seq,
-                    (unsigned long)(temp_magnitude / 100U),
-                    (unsigned long)(temp_magnitude % 100U),
-                    (unsigned long)record.pressure_pa,
-                    (unsigned long)(record.humidity_centi_pct / 100U),
-                    (unsigned long)(record.humidity_centi_pct % 100U));
-            }
-
-            Test_Print(line);
-        }
-
-        /*
-         * Logger_AppendRecord performs the destination blank
-         * check, one program attempt, readback classification,
-         * and exact byte comparison.
-         */
-        if (Logger_AppendRecord(
-                append_slot, &record, &hspi1) != HAL_OK)
-        {
-            Test_Print(
-                "LOGGER FAULT: APPEND FAILED, WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        /*
-         * Advance state only after verified append.
-         * Skipped scheduled slots advance next_seq separately.
-         */
-        append_slot++;
-        next_seq++;
-
-        if (append_slot >= FLASH_LOG_SLOT_COUNT)
-        {
-            Test_Print("LOG FULL. WRITES STOPPED.\r\n");
-            while (1) { HAL_Delay(1000); }
-        }
-
-        /*
-         * Schedule the next sample start relative to the
-         * previous scheduled start, not completion time.
-         */
-        next_sample_tick += 250U;
-    }
+}else{
+    while(1){}; //Recovery failed. Don't continue.
 }
+  /* USER CODE END 2 */
 
-  /* USER CODE END RECOVERY_SCAN */
-  
+  /* Init scheduler */
+  osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of uartMutex */
+  uartMutexHandle = osMutexNew(&uartMutex_attributes);
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* Create the queue(s) */
+  /* creation of recordQueue */
+  recordQueueHandle = osMessageQueueNew (4, sizeof(SensorRecord), &recordQueue_attributes);
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of SensorTask */
+  SensorTaskHandle = osThreadNew(StartSensorTask, NULL, &SensorTask_attributes);
+
+  /* creation of StorageTask */
+  StorageTaskHandle = osThreadNew(StartStorageTask, NULL, &StorageTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
+  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
   while (1)
   {
 
@@ -1004,22 +856,197 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartSensorTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the SensorTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_StartSensorTask */
+void StartSensorTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  uint32_t next_seq = recovery_result.next_seq;
+  uint32_t dropped = 0;
+  TickType_t last_wake = xTaskGetTickCount();
+  const TickType_t period = pdMS_TO_TICKS(250);
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    vTaskDelayUntil(&last_wake, period);
+    uint32_t now = xTaskGetTickCount();
+    if (now - last_wake >= period)
+        {
+            uint32_t late_ms = now - last_wake;
+            uint32_t missed = (late_ms / period) + 1U;
+            uint32_t first_skipped_seq = next_seq;
+            uint32_t last_skipped_seq;
+
+            /*
+             * Never permit sequence-number wraparound.
+             */
+            if ((next_seq == UINT32_MAX) ||
+                (missed > (UINT32_MAX - next_seq)))
+            {
+                Test_Print(
+                    "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
+                while (1) { vTaskSuspend(NULL); }
+            }
+
+            last_skipped_seq = next_seq + missed - 1U;
+            next_seq += missed;
+            last_wake += (missed - 1U) * period;
+
+            Test_Print("SAMPLES SKIPPED first_seq=0x");
+            Test_PrintHex32(first_skipped_seq);
+            Test_Print(" last_seq=0x");
+            Test_PrintHex32(last_skipped_seq);
+            Test_Print("\r\n");
+
+            /*
+             * Return to the top to recheck the deadline.
+             * Printing may itself have taken time.
+             */
+            continue;
+        }
+
+        /*
+         * A sequence of UINT32_MAX is reserved as the
+         * exhausted state, preventing increment wraparound.
+         */
+        if (next_seq == UINT32_MAX)
+        {
+            Test_Print(
+                "LOGGER FAULT: SEQUENCE EXHAUSTED. WRITES STOPPED.\r\n");
+            while (1) { vTaskSuspend(NULL); }
+        }
+
+        int32_t temperature_centi_c;
+        uint32_t pressure_q24_8;
+        uint32_t humidity_q22_10;
+
+        SensorRecord record;
+        SensorRecordStatus record_status;
+        HAL_StatusTypeDef sensor_status;
+
+        sensor_status = BME280_ReadMeasurement(
+            &hi2c1,
+            &calibration,
+            &temperature_centi_c,
+            &pressure_q24_8,
+            &humidity_q22_10);
+
+        if (sensor_status != HAL_OK)
+        {
+            Test_Print("LOGGER FAULT: SENSOR READ FAILED. WRITES STOPPED.\r\n");
+            while (1) { vTaskSuspend(NULL); }
+        }
+
+        record_status = SensorRecord_Build(
+            &record,
+            next_seq,
+            temperature_centi_c,
+            pressure_q24_8,
+            humidity_q22_10);
+
+        if (record_status != SENSOR_RECORD_OK)
+        {
+            Test_Print("LOGGER FAULT: RECORD BUILD FAILED. WRITES STOPPED.\r\n");
+            while (1) { vTaskSuspend(NULL); }
+        }
+
+        osStatus_t queue_status = osMessageQueuePut(recordQueueHandle, &record, 0, 0);
+
+        if(queue_status != osOK){
+            dropped++;
+            Test_Print("QUEUE FAULT: INDEX DROPPED.\r\n");
+            Test_Print("INDEX SKIPPED=");
+            Test_PrintHex32(record.seq);
+            Test_Print(" TOTAL DROPPED=");
+            Test_PrintHex32(dropped);
+            Test_Print("\r\n");
+        }
+
+        next_seq++;
+        /*
+         * Print the stored engineering units, not raw sensor
+         * fixed-point values. No floating-point formatting.
+         */
+        {
+            char line[128];
+            int32_t temp = record.temperature_centi_c;
+            uint32_t temp_magnitude =
+                (temp < 0) ? (uint32_t)(-temp) : (uint32_t)temp;
+
+            if (temp < 0)
+            {
+                (void)snprintf(
+                    line, sizeof(line),
+                    "SAMPLE seq=0x%08lX temp=-%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)record.seq,
+                    (unsigned long)(temp_magnitude / 100U),
+                    (unsigned long)(temp_magnitude % 100U),
+                    (unsigned long)record.pressure_pa,
+                    (unsigned long)(record.humidity_centi_pct / 100U),
+                    (unsigned long)(record.humidity_centi_pct % 100U));
+            }
+            else
+            {
+                (void)snprintf(
+                    line, sizeof(line),
+                    "SAMPLE seq=0x%08lX temp=%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)record.seq,
+                    (unsigned long)(temp_magnitude / 100U),
+                    (unsigned long)(temp_magnitude % 100U),
+                    (unsigned long)record.pressure_pa,
+                    (unsigned long)(record.humidity_centi_pct / 100U),
+                    (unsigned long)(record.humidity_centi_pct % 100U));
+            }
+
+            Test_Print(line);
+        }
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartStorageTask */
+/**
+* @brief Function implementing the StorageTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartStorageTask */
+void StartStorageTask(void *argument)
+{
+  /* USER CODE BEGIN StartStorageTask */
+  SensorRecord record;
+  uint32_t append_slot = recovery_result.append_slot;
+  /* Infinite loop */
+  for(;;)
+  {
+    osMessageQueueGet(recordQueueHandle, &record, NULL, osWaitForever);
+     /*
+         * Logger_AppendRecord performs the destination blank
+         * check, one program attempt, readback classification,
+         * and exact byte comparison.
+         */
+        if (Logger_AppendRecord(
+            append_slot, &record, &hspi1) != HAL_OK)
+        {
+            Test_Print(
+                "LOGGER FAULT: APPEND FAILED, WRITES STOPPED.\r\n");
+            while (1) { vTaskSuspend(NULL); }
+        }
+        
+        append_slot++;
+        if(append_slot >= FLASH_LOG_SLOT_COUNT){
+            Test_Print(
+                "LOGGER FAULT: LOGGER FULL, WRITES STOPPED.\r\n");
+            while (1) { vTaskSuspend(NULL); }
+        }
+  }
+  /* USER CODE END StartStorageTask */
 }
 
 /**
