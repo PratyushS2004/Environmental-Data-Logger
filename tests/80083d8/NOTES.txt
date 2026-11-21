@@ -1,0 +1,23 @@
+First FreeRTOS run, firmware at 80083d8 (PROVISION_LOG 0), 2026-11-21.
+Board: NUCLEO-F446RE + BME280 + W25Q64. Raw PuTTY session log.
+
+Sequence: provisioning image flashed and run (log starts there), then the
+normal image flashed with PuTTY still open, then left running until the
+log was full and samples were being dropped.
+
+What freertos-first-run.log shows:
+- Provisioning erased and verified all 4 log sectors (16,384 bytes).
+- ~17,000 NUL bytes before the RECOVERY line: UART TX pin held low while
+  the ST-Link reflashed the board. Not firmware output.
+- RECOVERY status=SCAN_OK append_slot=0 next_seq=0. elapsed_ticks=0
+  because the scan stops at the first blank slot (slot 0).
+- SAMPLE then APPEND VERIFIED every cycle (SensorTask is higher priority).
+- 1024 APPEND VERIFIED lines, slot == seq on every one, no gaps.
+- After slot 0x3FF: LOGGER FULL, StorageTask suspends. Seq 0x400-0x403
+  enter the queue (depth 4) with no drop. From 0x404 every sample drops.
+- Totals: 1548 SAMPLE = 1024 appended + 4 stuck in queue + 520 dropped.
+  The drop counter does not include the 4 queued records.
+- No SKIPPED, ERROR or EXHAUSTED lines.
+
+Not proven by this log: the 250 ms spacing (no timestamps in this build;
+the next build prints the tick in each SAMPLE line), and stack usage.
