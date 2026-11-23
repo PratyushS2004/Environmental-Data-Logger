@@ -868,6 +868,7 @@ void StartSensorTask(void *argument)
   /* USER CODE BEGIN 5 */
   uint32_t next_seq = recovery_result.next_seq;
   uint32_t dropped = 0;
+  uint32_t stack_report_count = 0;
   TickType_t last_wake = xTaskGetTickCount();
   const TickType_t period = pdMS_TO_TICKS(250);
 
@@ -1006,6 +1007,23 @@ void StartSensorTask(void *argument)
             }
 
             Test_Print(line);
+        }
+
+        /*
+         * Every 40 cycles (10 s), report the minimum free stack each
+         * task has ever had, in bytes. Measured after the SAMPLE print
+         * so this cycle's snprintf is already included.
+         */
+        stack_report_count++;
+        if (stack_report_count >= 40U)
+        {
+            stack_report_count = 0;
+
+            Test_Print("STACK sensor_free=0x");
+            Test_PrintHex32(osThreadGetStackSpace(SensorTaskHandle));
+            Test_Print(" storage_free=0x");
+            Test_PrintHex32(osThreadGetStackSpace(StorageTaskHandle));
+            Test_Print("\r\n");
         }
   }
   /* USER CODE END 5 */
