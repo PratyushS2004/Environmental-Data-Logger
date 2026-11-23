@@ -1,0 +1,22 @@
+Tick spacing and reset recovery, firmware at b24d44a (PROVISION_LOG 0), 2026-11-23.
+Board: NUCLEO-F446RE + BME280 + W25Q64. Raw PuTTY session log.
+
+Sequence: log provisioned (not captured), PuTTY opened, normal image
+flashed, ran ~16 s, reset button pressed (no reflash), ran ~20 s more.
+
+What tick-spacing-and-reset.log shows:
+- Lines 2-6 are stale bytes from an earlier session, held in the USB
+  serial path while PuTTY was closed and delivered when it reopened.
+  They end mid-word ("APP") where the buffer ended. Not from this run.
+- Boot 1: RECOVERY SCAN_OK append_slot=0 next_seq=0 (fresh log).
+  Seq 0x00-0x40 sampled and appended.
+- Reset after APPEND VERIFIED slot=0x40. Boot 2: RECOVERY SCAN_OK
+  append_slot=0x41 next_seq=0x41, elapsed_ticks=0x8 (66 slots read).
+  First sample after reset is seq 0x41. Recovery resumes at last + 1.
+- Every consecutive SAMPLE tick difference within a boot is exactly
+  0xFA (64 deltas in boot 1, 81 in boot 2). First sample at tick 0xFA.
+- slot == seq on every APPEND VERIFIED line, no slot appended twice.
+- No DROP, SKIPPED, ERROR or EXHAUSTED lines.
+
+Not proven: in-flight seq reuse. This reset fell between cycles, so no
+record was in the queue when it happened. Stack usage not measured.

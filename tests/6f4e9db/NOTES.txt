@@ -1,0 +1,17 @@
+Stack high-water mark, firmware at 6f4e9db (PROVISION_LOG 0), 2026-11-23.
+Board: NUCLEO-F446RE + BME280 + W25Q64. Raw PuTTY session log.
+Both tasks created with 256 words (1024 B) of stack.
+
+Log was provisioned before this run. PuTTY logging started after the
+normal image was already running, so there is no RECOVERY line.
+
+What stack-256-words.log shows (4 STACK lines, ~40 s):
+- STACK sensor_free=0x128 storage_free=0x28C on every line.
+- SensorTask: 296 B free, 728 B used (29% free). snprintf is most of it.
+- StorageTask: 652 B free, 372 B used (64% free).
+- Values never change: every cycle runs the same path.
+- 195 SAMPLE, 195 APPEND VERIFIED, no DROP, SKIPPED or ERROR lines.
+
+Only the normal path was measured. DROP, SKIPPED and error paths did
+not run. 29% free judged too thin for SensorTask; next change raises it
+to 512 words.

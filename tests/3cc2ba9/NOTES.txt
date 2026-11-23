@@ -1,0 +1,16 @@
+Stack high-water mark after raising SensorTask stack, firmware at 3cc2ba9
+(PROVISION_LOG 0), 2026-11-23. Board: NUCLEO-F446RE + BME280 + W25Q64.
+SensorTask 512 words (2048 B), StorageTask 256 words (1024 B).
+
+Log provisioned before this run. Starts cleanly at RECOVERY SCAN_OK
+slot 0 seq 0 (no stale bytes this time).
+
+What stack-512-words.log shows (4 STACK lines, ~40 s):
+- STACK sensor_free=0x528 storage_free=0x28C on every line.
+- SensorTask: 1320 B free of 2048. Used is still 728 B, same as at
+  6f4e9db, as predicted (same code path, bigger stack).
+- StorageTask unchanged at 652 B free.
+- 170 SAMPLE, 170 APPEND VERIFIED, slot == seq on all, every tick
+  delta 0xFA. No DROP, SKIPPED or ERROR lines.
+
+Only the normal path was measured.
