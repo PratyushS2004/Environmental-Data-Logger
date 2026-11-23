@@ -56,7 +56,7 @@ UART_HandleTypeDef huart2;
 osThreadId_t SensorTaskHandle;
 const osThreadAttr_t SensorTask_attributes = {
   .name = "SensorTask",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for StorageTask */
@@ -69,7 +69,7 @@ const osThreadAttr_t StorageTask_attributes = {
 /* Definitions for recordQueue */
 osMessageQueueId_t recordQueueHandle;
 const osMessageQueueAttr_t recordQueue_attributes = {
-  .name = "recordQueue" 
+  .name = "recordQueue"
 };
 /* Definitions for uartMutex */
 osMutexId_t uartMutexHandle;
