@@ -960,10 +960,9 @@ void StartSensorTask(void *argument)
 
         if(queue_status != osOK){
             dropped++;
-            Test_Print("QUEUE FAULT: INDEX DROPPED.\r\n");
-            Test_Print("INDEX SKIPPED=");
+            Test_Print("DROP seq=0x");
             Test_PrintHex32(record.seq);
-            Test_Print(" TOTAL DROPPED=");
+            Test_Print(" total=0x");
             Test_PrintHex32(dropped);
             Test_Print("\r\n");
         }
@@ -983,7 +982,8 @@ void StartSensorTask(void *argument)
             {
                 (void)snprintf(
                     line, sizeof(line),
-                    "SAMPLE seq=0x%08lX temp=-%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    "SAMPLE tick=0x%08lX seq=0x%08lX temp=-%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)now,
                     (unsigned long)record.seq,
                     (unsigned long)(temp_magnitude / 100U),
                     (unsigned long)(temp_magnitude % 100U),
@@ -995,7 +995,8 @@ void StartSensorTask(void *argument)
             {
                 (void)snprintf(
                     line, sizeof(line),
-                    "SAMPLE seq=0x%08lX temp=%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    "SAMPLE tick=0x%08lX seq=0x%08lX temp=%lu.%02luC pressure=%luPa humidity=%lu.%02lu%%RH\r\n",
+                    (unsigned long)now,
                     (unsigned long)record.seq,
                     (unsigned long)(temp_magnitude / 100U),
                     (unsigned long)(temp_magnitude % 100U),
